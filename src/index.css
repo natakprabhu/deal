@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Kindle-style eye-soothing theme */
+    --background: 35 33% 99%; /* #fdfcf9 warm off-white */
+    --foreground: 0 0% 10%; /* #1a1a1a dark grey */
+
+    --card: 35 33% 99%;
+    --card-foreground: 0 0% 10%;
+
+    --popover: 35 33% 99%;
+    --popover-foreground: 0 0% 10%;
+
+    /* Primary accent: burnt orange */
+    --primary: 10 68% 50%; /* #d84727 */
+    --primary-foreground: 35 33% 99%;
+
+    /* Secondary: coral */
+    --secondary: 15 100% 65%; /* #ff7750 */
+    --secondary-foreground: 0 0% 10%;
+
+    /* Muted tones */
+    --muted: 35 25% 95%;
+    --muted-foreground: 0 0% 45%;
+
+    /* Accent: peach */
+    --accent: 22 100% 73%; /* #ffa477 */
+    --accent-foreground: 0 0% 10%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 35 33% 99%;
+
+    --border: 35 20% 90%;
+    --input: 35 20% 92%;
+    --ring: 10 68% 50%;
+
+    --radius: 0.75rem;
+
+    /* Shadows */
+    --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.08);
+    --shadow-hover: 0 4px 16px rgba(216, 71, 39, 0.15);
+
+    /* Transitions */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .dark {
+    --background: 0 0% 12%;
+    --foreground: 35 33% 99%;
+
+    --card: 0 0% 15%;
+    --card-foreground: 35 33% 99%;
+
+    --popover: 0 0% 15%;
+    --popover-foreground: 35 33% 99%;
+
+    --primary: 10 68% 50%;
+    --primary-foreground: 35 33% 99%;
+
+    --secondary: 15 100% 65%;
+    --secondary-foreground: 0 0% 10%;
+
+    --muted: 0 0% 20%;
+    --muted-foreground: 0 0% 60%;
+
+    --accent: 22 100% 73%;
+    --accent-foreground: 0 0% 10%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 35 33% 99%;
+
+    --border: 0 0% 25%;
+    --input: 0 0% 25%;
+    --ring: 10 68% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-inter antialiased;
+  }
+
+  /* Smooth transitions for interactive elements */
+  button, a, input, textarea {
+    transition: var(--transition-smooth);
+  }
+}
