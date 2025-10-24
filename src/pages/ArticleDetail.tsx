@@ -15,98 +15,84 @@ import { CommentSection } from "@/components/CommentSection";
 import { Calendar, User } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, LabelList, Cell } from "recharts";
 
+// FIX 1: Updated Top10Product type to match Supabase schema
 type Top10Product = {
   id: string;
+  article_id: string;
   rank: number;
   name: string;
-  short_description: string;
   image: string;
-  rating: number;
-  amazon_price: number;
+  rating: string; // From Supabase data, this is a string
+  short_description: string;
+  pros: string[]; // From Supabase data
+  cons: string[]; // From Supabase data
+  amazon_price: string; // From Supabase data
+  amazon_discount: string; // From Supabase data
+  amazon_price_change: string; // From Supabase data (seems to be previous price)
   amazon_link: string;
-  flipkart_price: number;
+  flipkart_price: string; // From Supabase data
+  flipkart_discount: string; // From Supabase data
+  flipkart_price_change: string; // From Supabase data (seems to be previous price)
   flipkart_link: string;
+  badge: string | null; // From Supabase data
 };
 
+// FIX 2: Updated SmartPick type to match Supabase schema
 type SmartPick = {
   id: string;
+  article_id: string;
+  filters: any; // Assuming JSONB or text, 'any' is safe
   recommendation: string;
 };
 
 type RelatedArticle = {
   id: string;
   title: string;
-  url: string;
+  url: string; // Assuming this is a full URL, not a slug
 };
 
+// FIX 3: Updated Article type to match Supabase schema
 type Article = {
   id: string;
   title: string;
+  slug: string;
   content: string;
+  excerpt: string | null; // Added excerpt, as it's used in the JSX
   featured_image: string | null;
+  author_id: string | null;
+  status: string;
   views: number;
   created_at: string;
+  updated_at: string;
+  author: string | null; // Assuming 'author' is a name/string
   category: string | null;
+  date: string;
+  category_id: string | null;
 };
 
-const products = [
-  {
-    rank: 1,
-    name: "Elica 90cm Auto Clean Chimney",
-    image: "https://images.unsplash.com/photo-1556911220-bff31c812dba?w=400&h=400&fit=crop",
-    rating: 4.5,
-    pros: ["Auto-clean technology saves time", "1200 m³/hr powerful suction", "Touch controls with LED display", "Energy efficient motor"],
-    cons: ["Higher price point", "Installation requires professional help"],
-    amazonPrice: 15999,
-    amazonDiscount: 25,
-    amazonPriceChange: "down" as const,
-    amazonLink: "https://amazon.in",
-    flipkartPrice: 16499,
-    flipkartDiscount: 22,
-    flipkartPriceChange: "up" as const,
-    flipkartLink: "https://flipkart.com",
-    badge: "Editor's Choice",
-  },
-  {
-    rank: 2,
-    name: "Faber 60cm Curved Glass Chimney",
-    image: "https://images.unsplash.com/photo-1556911220-bff31c812dba?w=400&h=400&fit=crop",
-    rating: 4.3,
-    pros: ["Sleek curved glass design", "1000 m³/hr suction power", "Baffle filters for easy cleaning", "Affordable price point"],
-    cons: ["No auto-clean feature", "Slightly noisy at high speed"],
-    amazonPrice: 8999,
-    amazonDiscount: 30,
-    amazonLink: "https://amazon.in",
-    flipkartPrice: 9299,
-    flipkartDiscount: 28,
-    flipkartLink: "https://flipkart.com",
-    badge: "Best Value",
-  },
-  {
-    rank: 3,
-    name: "Hindware Smart 90cm Kitchen Chimney",
-    image: "https://images.unsplash.com/photo-1556911220-bff31c812dba?w=400&h=400&fit=crop",
-    rating: 4.4,
-    pros: ["Smart motion sensor controls", "1150 m³/hr suction capacity", "Premium build quality", "5-year warranty"],
-    cons: ["Premium pricing", "Motion sensor can be oversensitive"],
-    amazonPrice: 18999,
-    amazonDiscount: 20,
-    amazonPriceChange: "down" as const,
-    amazonLink: "https://amazon.in",
-    flipkartPrice: 19499,
-    flipkartDiscount: 18,
-    flipkartLink: "https://flipkart.com",
-    badge: "Smart Pick",
-  },
-];
+// FIX 4: Removed the hardcoded 'products' array. We will use 'top10Products' from state.
 
-const topProducts = [
+// This data is for the sidebar chart, not the main product list. It's fine to keep.
+const topProductsChartData = [
   { name: "Elica 90cm Auto Clean", orders: 120 },
   { name: "Faber 60cm Curved Glass", orders: 95 },
   { name: "Hindware Smart 90cm", orders: 80 },
   { name: "Glen Filterless 60cm", orders: 60 },
   { name: "Sunflame 75cm Chimney", orders: 50 },
 ];
+
+/**
+ * Helper function to determine price change direction.
+ * Assumes 'priceChange' is the *previous* price.
+ */
+const getPriceChangeDirection = (currentPrice: string, previousPrice: string): "up" | "down" | undefined => {
+  const current = parseFloat(currentPrice);
+  const previous = parseFloat(previousPrice);
+  if (isNaN(current) || isNaN(previous)) return undefined;
+  if (current < previous) return "down";
+  if (current > previous) return "up";
+  return undefined;
+};
 
 
 const ArticleDetail = () => {
@@ -131,6 +117,7 @@ const ArticleDetail = () => {
     }));
   };
 
+  // FIX 5: Updated getRecommendation to use the fetched smartPick as a fallback.
   const getRecommendation = () => {
     if (filters.usage === "high" && filters.maintenance === "easy") {
       return "For high oil usage with easy maintenance, we recommend models with auto-clean technology and powerful suction (1200+ m³/hr).";
@@ -141,7 +128,8 @@ const ArticleDetail = () => {
     if (filters.maintenance === "frequent") {
       return "If you prefer manual control and frequent cleaning, baffle filter models give you the best balance of performance and longevity.";
     }
-    return "Select your preferences above to get personalized recommendations. Our smart algorithm will suggest the best chimney models based on your specific needs.";
+    // Use the recommendation from Supabase as the default, or a final fallback.
+    return smartPick?.recommendation || "Select your preferences above to get personalized recommendations. Our smart algorithm will suggest the best chimney models based on your specific needs.";
   };
   
   useEffect(() => {
@@ -188,7 +176,7 @@ const ArticleDetail = () => {
         // Fetch related articles
         const { data: relatedData, error: relatedError } = await supabase
           .from("related_articles")
-          .select("*")
+          .select("*") // Assuming this table has id, title, url
           .eq("article_id", articleData.id);
 
         if (relatedError) throw relatedError;
@@ -225,20 +213,16 @@ return (
             <header className="bg-gradient-to-r from-orange-400 to-orange-600 text-white p-6 rounded-lg shadow-md">
               <div className="flex flex-wrap gap-2 mb-4">
                 <Badge variant="secondary" className="bg-white text-orange-600">
-                  Kitchen Appliances
-                </Badge>
-                <Badge variant="secondary" className="bg-white text-orange-600">
-                  Chimney Reviews
-                </Badge>
-                <Badge variant="secondary" className="bg-white text-orange-600">
-                  2025 Guide
+                  {/* Using category from fetched article */}
+                  {article.category || "Uncategorized"}
                 </Badge>
               </div>
               <h1 className="text-3xl md:text-4xl font-bold mb-2">{article.title}</h1>
               <div className="flex flex-wrap gap-4 text-sm">
                 <div className="flex items-center gap-2">
                   <User className="w-4 h-4" />
-                  <span>By Priya Sharma</span>
+                  {/* Using author from fetched article or a fallback */}
+                  <span>By {article.author || "Our Team"}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Calendar className="w-4 h-4" />
@@ -246,7 +230,8 @@ return (
                 </div>
               </div>
               <p className="mt-4 text-white/90">
-                {article.content}
+                {/* Using excerpt from fetched article */}
+                {article.excerpt}
               </p>
             </header>
 
@@ -255,11 +240,38 @@ return (
 
             <Separator className="my-8" />
 
-         {/* Product Reviews */}
+          {/* Product Reviews */}
           <section className="space-y-8">
-            <h2 className="text-3xl font-bold">Top 10 Kitchen Chimneys - Detailed Reviews</h2>
-            {products.map((product) => (
-              <ProductCard key={product.rank} {...product} />
+            <h2 className="text-3xl font-bold">Detailed Reviews</h2>
+            
+            {/* FIX 6: Render article.content as HTML, not in a <code> tag */}
+            <div
+              className="prose prose-orange max-w-none"
+              dangerouslySetInnerHTML={{ __html: article.content }}
+            />
+            
+            {/* FIX 7: Map over 'top10Products' from state, not the hardcoded array.
+                We also transform the props to match what ProductCard expects
+                (e.g., converting string prices/ratings to numbers). */}
+            {top10Products.map((product) => (
+              <ProductCard 
+                key={product.id}
+                rank={product.rank}
+                name={product.name}
+                image={product.image}
+                rating={parseFloat(product.rating)} // Convert string to number
+                pros={product.pros}
+                cons={product.cons}
+                amazonPrice={parseFloat(product.amazon_price)} // Convert string to number
+                amazonDiscount={parseFloat(product.amazon_discount)} // Convert string to number
+                amazonPriceChange={getPriceChangeDirection(product.amazon_price, product.amazon_price_change)}
+                amazonLink={product.amazon_link}
+                flipkartPrice={parseFloat(product.flipkart_price)} // Convert string to number
+                flipkartDiscount={parseFloat(product.flipkart_discount)} // Convert string to number
+                flipkartPriceChange={getPriceChangeDirection(product.flipkart_price, product.flipkart_price_change)}
+                flipkartLink={product.flipkart_link}
+                badge={product.badge}
+              />
             ))}
           </section>
 
@@ -276,7 +288,7 @@ return (
               <h2 className="text-xl font-bold mb-4">Top Products by Orders</h2>
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart
-                  data={topProducts}
+                  data={topProductsChartData}
                   layout="vertical"
                   margin={{ top: 10, right: 20, left: 0, bottom: 20 }}
                   barCategoryGap="8%"
@@ -292,16 +304,15 @@ return (
                   />
                   <Tooltip formatter={(value: number) => [`${value}`, "Orders"]} cursor={{ fill: "rgba(0,0,0,0.05)" }} />
                   <Bar dataKey="orders" fill="#f97316" radius={4} barSize={22}>
+                    {/* FIX 8: Simplified LabelList formatter */}
                     <LabelList
                       dataKey="orders"
                       position="insideRight"
                       fill="white"
                       fontWeight="bold"
-                      formatter={(value, _, props) => {
-                        return props?.payload ? `${props.payload.name}: ${value}` : `${value}`;
-                      }}
+                      formatter={(value: number) => `${value}`}
                     />
-                    {topProducts.map((_, index) => (
+                    {topProductsChartData.map((_, index) => (
                       <Cell key={`cell-${index}`} fill="#f97316" />
                     ))}
                   </Bar>
@@ -309,14 +320,29 @@ return (
               </ResponsiveContainer>
             </div>
 
-            {/* Related Articles Placeholder */}
+            {/* FIX 9: Replaced placeholder with dynamic Related Articles from state */}
             <div className="bg-white p-4 rounded-lg shadow-md space-y-3">
               <h2 className="text-lg font-bold">Related Articles</h2>
-              <ul className="space-y-2">
-                <li><a href="#" className="text-orange-600 hover:underline">Top 5 Kitchen Chimneys under ₹10K</a></li>
-                <li><a href="#" className="text-orange-600 hover:underline">How to Choose the Perfect Chimney for Indian Cooking</a></li>
-                <li><a href="#" className="text-orange-600 hover:underline">Maintenance Tips for Your Kitchen Chimney</a></li>
-              </ul>
+              {relatedArticles.length > 0 ? (
+                <ul className="space-y-2">
+                  {relatedArticles.map((related) => (
+                    <li key={related.id}>
+                      {/* Assuming 'related.url' is a full external URL. If it's an internal
+                          slug (e.g., /my-other-post), use <Link to={related.url}> */}
+                      <a 
+                        href={related.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-orange-600 hover:underline"
+                      >
+                        {related.title}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No related articles found.</p>
+              )}
             </div>
           </aside>
         </div>
