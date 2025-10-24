@@ -17,7 +17,7 @@ import Profile from "./pages/Profile";
 import Auth from "./pages/Auth";
 import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound";
-
+import DoremonPage from "./pages/Doremon";
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -30,13 +30,14 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/articles" element={<Articles />} />
-            <Route path="/articles/:slug" element={<ArticlePage />} />
+            <Route path="/articles/:slug" element={<ArticleDetail />} />
             <Route path="/search" element={<SearchResults />} />
             <Route path="/wishlist" element={<Wishlist />} />
             <Route path="/price-tracker" element={<PriceTracker />} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/deals" element={<Deals />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/doremon" element={<DoremonPage />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/admin" element={<Admin />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

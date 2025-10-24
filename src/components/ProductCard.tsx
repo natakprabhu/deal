@@ -39,22 +39,22 @@ export const ProductCard = ({
   badge,
 }: ProductCardProps) => {
   return (
-    <Card className="overflow-hidden hover:shadow-hover transition-all duration-300">
-      <div className="flex flex-col md:flex-row gap-6 p-6">
-        {/* Rank Badge */}
-        <div className="absolute top-4 left-4 w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold text-lg shadow-lg">
-          {rank}
-        </div>
+<Card className="relative hover:shadow-hover transition-all duration-300">
+  {/* Rank Number Overlay - Top Left */}
+  <div className="absolute -top-6 -left-6 text-6xl font-bold text-orange-500 opacity-90 z-10 select-none">
+    #{rank}
+  </div>
 
+      <div className="flex flex-col md:flex-row gap-6 p-6">
         {/* Product Image */}
-        <div className="relative w-full md:w-64 h-64 flex-shrink-0 mt-8 md:mt-0">
+        <div className="relative w-full md:w-64 h-64 flex-shrink-0">
           <img
             src={image}
             alt={name}
             className="w-full h-full object-cover rounded-lg"
           />
           {badge && (
-            <Badge className="absolute top-2 right-2 bg-accent text-accent-foreground">
+            <Badge className="absolute top-2 left-2 bg-accent text-accent-foreground">
               {badge}
             </Badge>
           )}
