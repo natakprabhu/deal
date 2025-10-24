@@ -66,6 +66,7 @@ const SearchResults = () => {
       const { data, error } = await supabase
         .from("categories")
         .select("id, name, slug")
+        .neq('name', 'Uncategorized')
         .order("name", { ascending: true });
 
       if (error) {
@@ -92,7 +93,7 @@ const SearchResults = () => {
         let queryBuilder = supabase
           .from("articles")
           .select("*, categories(name)")
-          .eq("status", "published");
+          //.eq("status", "published");
 
         if (selectedCategory) {
           const { data: catData } = await supabase
