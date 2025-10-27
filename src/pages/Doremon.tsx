@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast"; // 
 import { Toaster } from "@/components/ui/toaster"; // 
+import { Checkbox } from "@/components/ui/checkbox";
 
  interface Top10Product {
   rank: number;
@@ -49,6 +50,7 @@ interface Article {
   slug: string;
   content: string;
   excerpt: string;
+  tags: string[] | null;
   featured_image: string;
   category: string;
   category_id: string | null; 
@@ -74,6 +76,127 @@ const AdminDashboard = () => {
   const [isLoadingTop10, setIsLoadingTop10] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const { toast } = useToast();
+
+
+// Add this inside your AdminDashboard component in Doremon.tsx
+const subCategoryMap: { [key: string]: string[] } = {
+  "Air Purifier": [
+    "HEPA Filter",
+    "Activated Carbon",
+    "Ionizer",
+    "UV-C Light",
+    "Smart / Wi-Fi",
+    "With Humidifier"
+  ],
+  "Chimney": [
+    "Wall Mounted",
+    "Island Hood",
+    "Built-in",
+    "Baffle Filter",
+    "Filterless (Auto-Clean)",
+    "Mesh / Cassette Filter",
+    "Ducted",
+    "Ductless",
+    "Auto-Clean Feature",
+    "Suction: 800-1000 m³/hr",
+    "Suction: 1100-1300 m³/hr",
+    "Suction: 1400+ m³/hr"
+  ],
+  "Coffee Maker": [
+    "Fully Automatic",
+    "Semi-Automatic",
+    "Manual Brewer",
+    "Espresso Machine",
+    "Drip Coffee",
+    "Pod / Capsule",
+    "French Press",
+    "Moka Pot",
+    "Bean-to-Cup",
+    "Cold Brew"
+  ],
+  "Juicer": [
+    "Centrifugal (Fast)",
+    "Masticating (Cold Press)",
+    "Horizontal",
+    "Vertical",
+    "Multi-Function"
+  ],
+  "Laptop": [
+    "Everyday Use",
+    "Ultrabook",
+    "Gaming",
+    "2-in-1 / Convertible",
+    "Professional / Workstation",
+    "Chromebook",
+    "Windows",
+    "macOS",
+    "13-14 inch",
+    "15-16 inch",
+    "17+ inch"
+  ],
+  "Microwave": [
+    "Solo",
+    "Grill",
+    "Convection",
+    "Countertop",
+    "Over-the-Range",
+    "Inverter Technology"
+  ],
+  "Mobile": [
+    "Android",
+    "iOS",
+    "Budget (< ₹15,000)",
+    "Mid-Range (₹15k-₹35k)",
+    "Flagship (> ₹50,000)",
+    "Foldable",
+    "Gaming Phone"
+  ],
+  "Refrigerator": [
+    "Single Door",
+    "Double Door (Top Freezer)",
+    "Double Door (Bottom Mount)",
+    "Side-by-Side",
+    "French Door",
+    "Direct Cool",
+    "Frost-Free",
+    "Convertible",
+    "With Water/Ice Dispenser"
+  ],
+  "TV": [
+    "LED-LCD",
+    "QLED",
+    "Neo QLED",
+    "OLED",
+    "HD Ready (720p)",
+    "Full HD (1080p)",
+    "4K UHD (2160p)",
+    "8K",
+    "Google TV",
+    "webOS (LG)",
+    "Tizen (Samsung)"
+  ],
+  "Vaccum Cleaner": [
+    "Canister",
+    "Upright",
+    "Stick / Cordless",
+    "Robotic",
+    "Handheld",
+    "Dry Only",
+    "Wet & Dry",
+    "Bagged",
+    "Bagless"
+  ],
+  "Water Purifier": [
+    "RO (Reverse Osmosis)",
+    "UV (Ultraviolet)",
+    "UF (Ultrafiltration)",
+    "RO + UV",
+    "RO + UV + UF",
+    "With Mineralizer",
+    "Wall-Mounted",
+    "Gravity-Based"
+  ]
+};
 
   const authorNames = [
     "Rohan Gupta",
@@ -197,6 +320,7 @@ const fetchCategories = async () => {
       status: "draft",
       views: 0,
       date: new Date().toISOString().slice(0, 10),
+      tags: [], 
       top10_products: [],
       smart_pick: { recommendation: "" },
       related_articles: [],
@@ -236,6 +360,7 @@ const handleSave = async () => {
           status: selectedArticle.status,
           views: selectedArticle.views,
           date: selectedArticle.date,
+          tags: selectedArticle.tags,
         })
         .eq("id", selectedArticle.id)
         .select()
@@ -257,6 +382,7 @@ const handleSave = async () => {
           status: selectedArticle.status,
           views: selectedArticle.views,
           date: selectedArticle.date,
+          tags: selectedArticle.tags,
         }])
         .select()
         .single();
@@ -338,30 +464,27 @@ const handleSave = async () => {
     }
   };
 
-
+const handleTagChange = (tag: string, checked: boolean) => {
+  if (!selectedArticle) return;
+  const currentTags = selectedArticle.tags || [];
+  if (checked) {
+    // Add the tag
+    setSelectedArticle({
+      ...selectedArticle,
+      tags: [...currentTags, tag],
+    });
+  } else {
+    // Remove the tag
+    setSelectedArticle({
+      ...selectedArticle,
+      tags: currentTags.filter((t) => t !== tag),
+    });
+  }
+};
 
   // Add new product (keeps sensible defaults)
   const addProduct = () => {
     if (!selectedArticle) return;
-
-    // const newProduct: Top10Product = {
-    //   rank: selectedArticle.top10_products.length + 1,
-    //   name: "",
-    //   short_description: "",
-    //   image: "",
-    //   rating: 4.0,
-    //   pros: [""],
-    //   cons: [""],
-    //   amazon_price: 0,
-    //   amazon_discount: null,
-    //   amazon_price_change: null,
-    //   amazon_link: "",
-    //   flipkart_price: 0,
-    //   flipkart_discount: null,
-    //   flipkart_price_change: null,
-    //   flipkart_link: "",
-    //   badge: null,
-    // };
 
     // --- Helper functions for dummy data ---
     const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -907,6 +1030,35 @@ const handleSave = async () => {
                     rows={6}
                   />
                 </div>
+                {/* --- Sub-Categories (Tags) Section --- */}
+                  <div className="space-y-2">
+                    <Label>Sub-Categories / Tags</Label>
+                    <div className="rounded-md border p-4 space-y-2">
+                      {selectedArticle.category && subCategoryMap[selectedArticle.category] ? (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                          {subCategoryMap[selectedArticle.category].map((tag) => (
+                            <div key={tag} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={tag}
+                                checked={(selectedArticle.tags || []).includes(tag)}
+                                onCheckedChange={(checked) => handleTagChange(tag, !!checked)}
+                              />
+                              <Label
+                                htmlFor={tag}
+                                className="text-sm font-normal"
+                              >
+                                {tag}
+                              </Label>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          Please select a main category first.
+                        </p>
+                      )}
+                    </div>
+                  </div>
               </div>
 
               {/* Top 10 Products */}

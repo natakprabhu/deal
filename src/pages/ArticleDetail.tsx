@@ -132,69 +132,58 @@ const ArticleDetail = () => {
     return smartPick?.recommendation || "Select your preferences above to get personalized recommendations. Our smart algorithm will suggest the best chimney models based on your specific needs.";
   };
   
-  useEffect(() => {
-    const fetchArticleData = async () => {
+useEffect(() => {
+    const fetchArticleDetails = async () => {
+      if (!slug) return;
+      setLoading(true);
+
       try {
-        setLoading(true);
-
-        // Fetch article
-        const { data: articleData, error: articleError } = await supabase
+        // --- THIS IS THE NEW, EFFICIENT QUERY ---
+        const { data, error } = await supabase
           .from("articles")
-          .select("*")
+          .select(`
+            *,
+            categories(name, slug),
+            top10_products(*),
+            smart_pick_recommendations(*),
+            related_articles(*)
+          `)
           .eq("slug", slug)
+          //.eq("status", "published") // Ensure only published are visible
           .single();
+        // --- END OF NEW QUERY ---
 
-        if (articleError) throw articleError;
-        setArticle(articleData);
+        if (error) {
+          throw error;
+        }
 
-        // Increment views
-        await supabase
-          .from("articles")
-          .update({ views: (articleData.views || 0) + 1 })
-          .eq("id", articleData.id);
+        if (data) {
+          // All data (article, products, smart_pick, etc.)
+          // is now available in this single 'data' object.
+          // Supabase will automatically nest them as arrays.
+          
+          // Example:
+          // data.top10_products will be an array
+          // data.smart_picks will be an object
+          
+          setArticle(data);
+          
+          // You may need to adjust your state if you were
+          // storing products/picks in separate states before.
+        } else {
+          setNotFound(true);
+        }
 
-        // Fetch Top 10 products
-        const { data: top10Data, error: top10Error } = await supabase
-          .from("top10_products")
-          .select("*")
-          .eq("article_id", articleData.id)
-          .order("rank", { ascending: true });
-
-        if (top10Error) throw top10Error;
-        setTop10Products(top10Data || []);
-
-        // Fetch Smart Pick recommendation
-        const { data: smartPickData, error: smartPickError } = await supabase
-          .from("smart_pick_recommendations")
-          .select("*")
-          .eq("article_id", articleData.id)
-          .single();
-
-        if (smartPickError && smartPickError.code !== "PGRST116") throw smartPickError; // ignore "no rows" error
-        setSmartPick(smartPickData || null);
-
-        // Fetch related articles
-        const { data: relatedData, error: relatedError } = await supabase
-          .from("related_articles")
-          .select("*") // Assuming this table has id, title, url
-          .eq("article_id", articleData.id);
-
-        if (relatedError) throw relatedError;
-        setRelatedArticles(relatedData || []);
-      } catch (error) {
-        console.error("Error fetching article:", error);
-        toast({
-          title: "Error",
-          description: "Failed to load article",
-          variant: "destructive",
-        });
+      } catch (err: any) {
+        console.error("Error fetching article:", err.message);
+        setError("Failed to load article.");
       } finally {
         setLoading(false);
       }
     };
 
-    if (slug) fetchArticleData();
-  }, [slug, toast]);
+    fetchArticleDetails();
+  }, [slug]);
 
   if (loading) return <p className="text-center py-12">Loading article...</p>;
   if (!article) return <p className="text-center py-12">Article not found</p>;
