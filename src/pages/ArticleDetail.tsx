@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,8 +11,16 @@ import { Separator } from "@/components/ui/separator";
 import { ProductCard } from "@/components/ProductCard";
 import { SmartPick } from "@/components/SmartPick";
 import { CommentSection } from "@/components/CommentSection";
-import { Calendar, User } from "lucide-react";
+import { Calendar, User,Filter, Lightbulb,TrendingUp } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, LabelList, Cell } from "recharts";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from '@/components/ui/skeleton'; // <-- ADD THIS LINE
+// Define the shape of sales data items
+interface TopSaleItem {
+  model_name: string;
+  sales_count: number;
+}
+
 
 // FIX 1: Updated Top10Product type to match Supabase schema
 type Top10Product = {
@@ -103,6 +110,16 @@ const ArticleDetail = () => {
   const [relatedArticles, setRelatedArticles] = useState<RelatedArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+
+  // --- ADD State for Sales Chart ---
+  const [salesData, setSalesData] = useState<TopSaleItem[]>([]);
+  const [salesLoading, setSalesLoading] = useState(true);
+  const [salesError, setSalesError] = useState<string | null>(null);
+  // --- END ---
+
+  const [error, setError] = useState<string | null>(null); // <-- ENSURE THIS LINE EXISTS AND IS UNCOMMENTED
+  const [notFound, setNotFound] = useState(false); // <-- ENSURE THIS LINE IS PRESENT AND UNCOMMENTED
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [filters, setFilters] = useState<{
     usage?: string;
     maintenance?: string;
@@ -131,47 +148,51 @@ const ArticleDetail = () => {
     // Use the recommendation from Supabase as the default, or a final fallback.
     return smartPick?.recommendation || "Select your preferences above to get personalized recommendations. Our smart algorithm will suggest the best chimney models based on your specific needs.";
   };
-  
-useEffect(() => {
+
+// Fetch article details
+  useEffect(() => {
     const fetchArticleDetails = async () => {
       if (!slug) return;
+      console.log("Fetching article for slug:", slug); // <-- DEBUG
       setLoading(true);
+      setError(null);
+      setNotFound(false);
+      setCategoryId(null); // Reset category ID
 
       try {
-        // --- THIS IS THE NEW, EFFICIENT QUERY ---
         const { data, error } = await supabase
           .from("articles")
           .select(`
             *,
-            categories(name, slug),
+            categories(id, name, slug), 
             top10_products(*),
             smart_pick_recommendations(*),
-            related_articles(*)
+            related_articles(*),
+            tags
           `)
           .eq("slug", slug)
-          //.eq("status", "published") // Ensure only published are visible
+          .eq("status", "published")
           .single();
-        // --- END OF NEW QUERY ---
 
-        if (error) {
+        console.log("Article fetch result:", { data, error }); // <-- DEBUG
+
+        if (error && error.code === 'PGRST116') {
+           console.log("Article not found (PGRST116)"); // <-- DEBUG
+           setNotFound(true);
+        } else if (error) {
           throw error;
         }
 
         if (data) {
-          // All data (article, products, smart_pick, etc.)
-          // is now available in this single 'data' object.
-          // Supabase will automatically nest them as arrays.
-          
-          // Example:
-          // data.top10_products will be an array
-          // data.smart_picks will be an object
-          
           setArticle(data);
-          
-          // You may need to adjust your state if you were
-          // storing products/picks in separate states before.
-        } else {
-          setNotFound(true);
+          // --- DEBUG categoryId ---
+          const fetchedCategoryId = data.categories?.id || null;
+          console.log("Extracted category ID:", fetchedCategoryId); // <-- DEBUG
+          setCategoryId(fetchedCategoryId);
+          // --- END DEBUG ---
+        } else if (!error) { // Handle case where data is null without error
+           console.log("Article data is null but no error reported."); // <-- DEBUG
+           setNotFound(true);
         }
 
       } catch (err: any) {
@@ -184,6 +205,52 @@ useEffect(() => {
 
     fetchArticleDetails();
   }, [slug]);
+
+
+  // Fetch Sales Data
+  useEffect(() => {
+    const fetchTopSales = async () => {
+      // --- DEBUG ---
+      console.log("Sales fetch effect triggered. categoryId:", categoryId); 
+      // --- END DEBUG ---
+
+      if (!categoryId) {
+        console.log("Sales fetch skipped: No categoryId."); // <-- DEBUG
+        setSalesLoading(false);
+        setSalesData([]);
+        return;
+      }
+
+      setSalesLoading(true);
+      setSalesError(null);
+      try {
+        console.log("Fetching top sales for categoryId:", categoryId); // <-- DEBUG
+        const { data, error } = await supabase
+          .from('top_sales')
+          .select('model_name, sales_count')
+          .eq('category_id', categoryId)
+          .order('sales_count', { ascending: false })
+          .limit(5);
+
+        console.log("Top sales fetch result:", { data, error }); // <-- DEBUG
+
+        if (error) throw error;
+
+        setSalesData((data || []).reverse());
+
+      } catch (err: any) {
+        console.error("Error fetching top sales:", err.message);
+        setSalesError("Could not load sales data.");
+        setSalesData([]);
+      } finally {
+        setSalesLoading(false);
+      }
+    };
+
+    fetchTopSales();
+  }, [categoryId]); // Dependency remains categoryId
+
+ 
 
   if (loading) return <p className="text-center py-12">Loading article...</p>;
   if (!article) return <p className="text-center py-12">Article not found</p>;
@@ -224,8 +291,32 @@ return (
               </p>
             </header>
 
-            {/* Smart Pick */}
-            <SmartPick activeFilters={filters} onFilterChange={handleFilterChange} recommendation={getRecommendation()} />
+            {/* --- NEW SECTION: Article Filters/Tags --- */}
+          {/* Check if article exists and has tags */}
+          {article && article.tags && article.tags.length > 0 && (
+            <Card className="mb-8 bg-gradient-to-br from-card to-card/80 border-0 shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  {/* You can use a filter icon or keep the lightbulb */}
+                  <Lightbulb className="h-5 w-5 text-primary" /> 
+                  Article Smart Filters
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {/* Display tags using Shadcn Badges */}
+                <div className="flex flex-wrap gap-2">
+                  {article.tags.map((tag) => (
+                    <Badge key={tag} variant="outline" className="text-sm">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {/* --- END OF NEW SECTION --- */}
+
+          {/* ... (Rest of your JSX for related articles, comments, etc.) ... */}
 
             <Separator className="my-8" />
 
@@ -271,43 +362,85 @@ return (
           </div>
 
           {/* Right Sidebar */}
-          <aside className="col-span-12 md:col-span-4 space-y-6">
-            {/* Top Products Orders Chart */}
-            <div className="bg-white p-4 rounded-lg shadow-md">
-              <h2 className="text-xl font-bold mb-4">Top Products by Orders</h2>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart
-                  data={topProductsChartData}
-                  layout="vertical"
-                  margin={{ top: 10, right: 20, left: 0, bottom: 20 }}
-                  barCategoryGap="8%"
-                >
-                  <XAxis type="number" hide />
-                  <YAxis
-                    dataKey="name"
-                    type="category"
-                    width={140}
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 14, fontWeight: 500 }}
-                  />
-                  <Tooltip formatter={(value: number) => [`${value}`, "Orders"]} cursor={{ fill: "rgba(0,0,0,0.05)" }} />
-                  <Bar dataKey="orders" fill="#f97316" radius={4} barSize={22}>
-                    {/* FIX 8: Simplified LabelList formatter */}
-                    <LabelList
-                      dataKey="orders"
-                      position="insideRight"
-                      fill="white"
-                      fontWeight="bold"
-                      formatter={(value: number) => `${value}`}
+          {/* Right Sidebar */}
+        <aside className="col-span-12 md:col-span-4 space-y-6">
+          {/* --- UPDATED Top Products Sales Chart --- */}
+          <Card className="bg-white p-4 rounded-lg shadow-md"> {/* Use Card for consistency */}
+            <CardHeader className="p-0 mb-4"> {/* Adjust padding */}
+              <CardTitle className="text-xl font-bold flex items-center gap-2"> {/* Use CardTitle */}
+                 <TrendingUp className="h-5 w-5 text-primary" />
+                 Top Selling Models
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0"> {/* Adjust padding */}
+              {/* Loading State */}
+              {salesLoading && (
+                <div className="space-y-2 h-[220px]"> {/* Match chart height */}
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-5/6" />
+                  <Skeleton className="h-8 w-4/6" />
+                  <Skeleton className="h-8 w-3/6" />
+                  <Skeleton className="h-8 w-2/6" />
+                </div>
+              )}
+              {/* Error State */}
+              {salesError && <p className="text-destructive text-center h-[220px] flex items-center justify-center">{salesError}</p>}
+              {/* Empty State */}
+              {!salesLoading && !salesError && salesData.length === 0 && (
+                <p className="text-muted-foreground text-center h-[220px] flex items-center justify-center">
+                  No sales data available.
+                </p>
+              )}
+              {/* Chart */}
+              {!salesLoading && !salesError && salesData.length > 0 && (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart
+                    data={salesData} // <-- Use fetched salesData
+                    layout="vertical"
+                    margin={{ top: 5, right: 30, left: 0, bottom: 5 }} // Adjusted margins
+                  >
+                    <XAxis type="number" hide />
+                    <YAxis
+                      dataKey="model_name" // <-- Use model_name
+                      type="category"
+                      width={140}
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} // Style tick
+                      interval={0} // Show all labels
                     />
-                    {topProductsChartData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill="#f97316" />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+                    <Tooltip
+                       formatter={(value: number) => [`${value}`, "Sales"]} // <-- Change label to Sales
+                       cursor={{ fill: 'hsl(var(--muted) / 0.5)' }} // Use theme color
+                       contentStyle={{ // Style tooltip
+                         backgroundColor: 'hsl(var(--background))',
+                         borderColor: 'hsl(var(--border))',
+                         borderRadius: 'var(--radius)',
+                         fontSize: '12px'
+                       }}
+                    />
+                    <Bar
+                      dataKey="sales_count" // <-- Use sales_count
+                      fill="hsl(var(--primary))" // Use theme color
+                      radius={4}
+                      barSize={20} // Adjust bar size
+                    >
+                      <LabelList
+                        dataKey="sales_count" // <-- Use sales_count
+                        position="right" // Position label outside bar
+                        offset={8} // Add offset
+                        fill="hsl(var(--foreground))" // Use theme color
+                        fontSize={12}
+                        fontWeight="500"
+                        formatter={(value: number) => `${value}`}
+                      />
+                      {/* Cell is not needed if using a single color */}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
 
             {/* FIX 9: Replaced placeholder with dynamic Related Articles from state */}
             <div className="bg-white p-4 rounded-lg shadow-md space-y-3">
