@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Search, Plus, Edit, Trash2, Eye, Save, X, Package, Lightbulb, FileText } from "lucide-react";
+import { Search, Plus, Edit, Trash2, Eye, Save, X, Package, Lightbulb, FileText, Send } from "lucide-react"; // <-- Add 'Send' here
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; // <-- ADD THIS
 import { supabase } from "@/integrations/supabase/client";
@@ -296,7 +296,7 @@ const fetchCategories = async () => {
       }
 
       // Log the data we received
-      console.log("Fetched categories DATA:", data); // <-- Data log
+      //console.log("Fetched categories DATA:", data); // <-- Data log
       
       setCategories(data ?? []);
     } catch (err: any) {
@@ -330,15 +330,130 @@ const fetchCategories = async () => {
   };
 
 
-  const handleEdit = (article: Article) => {
-    setSelectedArticle({ ...article, top10_products: [] }); // show UI quickly
-    setIsEditing(true);
-    if (article.id) {
-      loadTop10Products(article.id);
-      loadSmartPick(article.id); 
-      loadRelatedArticles(article.id); 
+  const handlePublish = async (articleId: string) => {
+    try {
+      // Update only the 'status' field in the database
+      const { error } = await supabase
+        .from("articles")
+        .update({ status: "published" })
+        .eq("id", articleId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Article Published!",
+        description: "The article is now live.",
+      });
+      fetchArticlesFromSupabase(); // Refresh the article list
+    } catch (err: any) {
+      console.error("Publish failed:", err);
+      toast({
+        variant: "destructive",
+        title: "Publish Failed",
+        description: err.message || "An unknown error occurred.",
+      });
     }
   };
+
+
+
+const loadFullArticleData = async (articleId: string) => {
+    console.log(`[Debug] loadFullArticleData called with ID: ${articleId}`);
+    try {
+      setIsLoadingTop10(true); // We can still use this for the main loading state
+
+      // This is the single, nested query
+      const { data, error } = await supabase
+        .from("articles")
+        .select(`
+          *,
+          top10_products(*),
+          smart_pick_recommendations(*),
+          related_articles(*)
+        `)
+        .eq("id", articleId)
+        .order("rank", { referencedTable: "top10_products", ascending: true }) // Order products
+        .single(); // Get a single article
+
+      console.log("[Debug] loadFullArticleData response:", { data, error });
+
+      if (error) throw error;
+
+      if (data) {
+        // --- 1. Map Top 10 Products ---
+        const products: Top10Product[] = (data.top10_products || []).map((row: any, idx: number) => ({
+          rank: row.rank ?? idx + 1,
+          name: row.name ?? "",
+          short_description: row.short_description ?? "",
+          image: row.image ?? "",
+          rating: typeof row.rating === "number" ? row.rating : parseFloat(row.rating ?? "0") || 0,
+          pros: Array.isArray(row.pros) ? row.pros : (row.pros ? JSON.parse(row.pros) : []),
+          cons: Array.isArray(row.cons) ? row.cons : (row.cons ? JSON.parse(row.cons) : []),
+          amazon_price: row.amazon_price ?? 0,
+          amazon_discount: row.amazon_discount ?? null,
+          amazon_price_change: row.amazon_price_change ?? null,
+          amazon_link: row.amazon_link ?? "",
+          flipkart_price: row.flipkart_price ?? 0,
+          flipkart_discount: row.flipkart_discount ?? null,
+          flipkart_price_change: row.flipkart_price_change ?? null,
+          flipkart_link: row.flipkart_link ?? "",
+          badge: row.badge ?? null,
+        }));
+
+        // --- 2. Extract Smart Pick ---
+        const smartPick: SmartPick = (data.smart_pick_recommendations && data.smart_pick_recommendations[0])
+          ? { recommendation: data.smart_pick_recommendations[0].recommendation ?? "" }
+          : { recommendation: "" };
+
+        // --- 3. Extract Related Articles ---
+        const relatedArticles: RelatedArticle[] = (data.related_articles || []).map((row: any) => ({
+          title: row.title ?? "",
+          url: row.url ?? ""
+        }));
+
+        // --- 4. Set the state ONCE with all data ---
+        setSelectedArticle((prev) => prev ? {
+          ...prev, // Keep the base article data from the list
+          ...data,  // Overwrite with full data
+          top10_products: products,
+          smart_pick: smartPick,
+          related_articles: relatedArticles
+        } : null);
+      }
+    } catch (err: any) {
+      console.error("Error loading full article data:", err.message);
+      toast({
+        variant: "destructive",
+        title: "Failed to load article data",
+        description: err.message,
+      });
+    } finally {
+      setIsLoadingTop10(false);
+    }
+  };
+
+
+  const handleEdit = (article: Article) => {
+    console.log(`[Debug] Editing article with ID: ${article.id}`);
+    
+    // Set default empty values to prevent the UI from crashing
+    // before the data is loaded.
+    setSelectedArticle({
+      ...article,
+      top10_products: [],
+      smart_pick: { recommendation: "" },
+      related_articles: []
+    });
+    
+    setIsEditing(true);
+    
+    if (article.id) {
+      // Call the new single function instead of three old ones
+      loadFullArticleData(article.id);
+    }
+  };
+
+
 
 
 const handleSave = async () => {
@@ -856,22 +971,58 @@ const handleTagChange = (tag: string, checked: boolean) => {
                       <span>•</span>
                       <span>{article.date}</span>
                     </div>
+
                     <div className="flex gap-2 pt-2">
-                      <Button asChild variant="outline" size="sm" className="gap-2">
-                        <Link to={`/article/${article.slug}`} target="_blank" rel="noopener noreferrer">
-                          <Eye className="h-4 w-4" />
-                          View
-                        </Link>
-                      </Button>
-                      <Button onClick={() => handleEdit(article)} variant="outline" size="sm" className="gap-2">
+                      {/* --- NEW PUBLISH BUTTON --- */}
+                      {article.status === "draft" && (
+                        <Button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handlePublish(article.id);
+                          }}
+                          variant="outline"
+                          size="sm"
+                          className="gap-2 text-blue-600 hover:text-blue-700 border-blue-200 hover:bg-blue-50"
+                        >
+                          <Send className="h-4 w-4" />
+                          Publish
+                        </Button>
+                      )}
+
+                      {/* Existing Edit Button */}
+                      <Button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleEdit(article);
+                        }}
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                      >
                         <Edit className="h-4 w-4" />
                         Edit
                       </Button>
-                      <Button onClick={() => setDeleteId(article.id)} variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive">
+
+                      {/* Existing Delete Button */}
+                      <Button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDeleteId(article.id);
+                        }}
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 text-destructive hover:text-destructive"
+                      >
                         <Trash2 className="h-4 w-4" />
                         Delete
                       </Button>
                     </div>
+
+
+
                   </div>
                 </div>
               </CardContent>

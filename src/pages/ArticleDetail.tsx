@@ -358,7 +358,7 @@ return (
             <Separator className="my-8" />
 
             {/* Comments */}
-            <CommentSection />
+            <CommentSection articleId={article.id} />
           </div>
 
           {/* Right Sidebar */}
