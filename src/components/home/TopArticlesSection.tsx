@@ -98,7 +98,7 @@ const TopArticlesSection = () => {
                     <img
                       src={
                         article.featured_image ||
-                        "public/test.jpg"
+                        "/test.jpg"
                       }
                       alt={article.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
