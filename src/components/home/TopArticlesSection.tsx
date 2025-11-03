@@ -98,7 +98,7 @@ const TopArticlesSection = () => {
                     <img
                       src={
                         article.featured_image ||
-                        "https://images.unsplash.com/photo-1556911220-bff31c812dba?w=400&h=300&fit=crop"
+                        "public/test.jpg"
                       }
                       alt={article.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
