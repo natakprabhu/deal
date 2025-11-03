@@ -174,8 +174,7 @@ const ArticleDetail = () => {
           .eq("status", "published")
           .single();
 
-        console.log("Article fetch result:", { data, error }); // <-- DEBUG
-
+        //console.log("Article fetch result:", { data, error }); // <-- DEBUG
         if (error && error.code === 'PGRST116') {
            console.log("Article not found (PGRST116)"); // <-- DEBUG
            setNotFound(true);
@@ -187,11 +186,41 @@ const ArticleDetail = () => {
           setArticle(data);
           // --- DEBUG categoryId ---
           const fetchedCategoryId = data.categories?.id || null;
-          console.log("Extracted category ID:", fetchedCategoryId); // <-- DEBUG
+          //console.log("Extracted category ID:", fetchedCategoryId); // <-- DEBUG
           setCategoryId(fetchedCategoryId);
-          // --- END DEBUG ---
+        // --- END DEBUG ---
+
+        // Fetch Top10 products separately
+        console.log("Querying top10_products with article_id:", data.id);
+        const { data: productsData, error: productsError } = await supabase
+          .from("top10_products")
+          .select("*")
+          .eq("article_id", data.id)
+          .order("rank", { ascending: true });
+
+        console.log("Top10 products result:", { productsData, productsError });
+        if (productsError) {
+          console.error("Error fetching top10_products:", productsError);
+        } else {
+          setTop10Products(productsData || []);
+        }
+
+        const { data: relatedData, error: relatedDataError } = await supabase
+          .from("related_articles")
+          .select("*")
+          .eq("article_id", data.id)
+          .order("rank", { ascending: true });
+
+        console.log("Related articles in fetched data:", data?.related_articles);
+        if (data?.related_articles) {
+          setRelatedArticles(data.related_articles);
+        } else {
+          setRelatedArticles([]);
+        }
+
+
         } else if (!error) { // Handle case where data is null without error
-           console.log("Article data is null but no error reported."); // <-- DEBUG
+           //console.log("Article data is null but no error reported."); // <-- DEBUG
            setNotFound(true);
         }
 
