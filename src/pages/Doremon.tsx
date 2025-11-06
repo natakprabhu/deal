@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react"; // <-- Added useMemo
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,31 +8,37 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Search, Plus, Edit, Trash2, Eye, Save, X, Package, Lightbulb, FileText, Send } from "lucide-react"; // <-- Add 'Send' here
+import { Search, Plus, Edit, Trash2, Eye, Save, X, Package, Lightbulb, FileText, Send } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; // <-- ADD THIS
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/components/ui/use-toast"; // 
-import { Toaster } from "@/components/ui/toaster"; // 
+import { useToast } from "@/components/ui/use-toast";
+import { Toaster } from "@/components/ui/toaster";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
- interface Top10Product {
-  rank: number;
+// This is the new master product interface
+interface Product {
+  id: string;
+  created_at: string;
   name: string;
+  slug: string; // <-- Added slug
   short_description: string;
   image: string;
-  rating: number;
   pros: string[];
   cons: string[];
-  amazon_price: number;
-  amazon_discount: number | null;
-  amazon_price_change: number | null;
   amazon_link: string;
-  flipkart_price: number;
-  flipkart_discount: number | null;
-  flipkart_price_change: number | null;
   flipkart_link: string;
   badge: string | null;
+  category_id: string | null;
+  tags: string[]; // <-- Added tags
+}
+
+// This is the "Top 10" item for your React state
+interface ArticleProduct {
+  rank: number;
+  product_id: string;
+  product: Product; // This will be the nested product object
 }
 
 interface SmartPick {
@@ -53,21 +59,21 @@ interface Article {
   tags: string[] | null;
   featured_image: string;
   category: string;
-  category_id: string | null; 
+  category_id: string | null;
   status: "draft" | "published";
   views: number;
   date: string;
-  top10_products: Top10Product[];
+  article_products: ArticleProduct[]; // <-- Correct
   smart_pick: SmartPick;
   related_articles: RelatedArticle[];
+  author: string; // Added author
 }
-
 
 interface Category {
   id: string;
   name: string;
+  slug: string; // Added slug
 }
-
 
 const AdminDashboard = () => {
   const [articles, setArticles] = useState<Article[]>([]);
@@ -77,126 +83,140 @@ const AdminDashboard = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const { toast } = useToast();
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
-// Add this inside your AdminDashboard component in Doremon.tsx
-const subCategoryMap: { [key: string]: string[] } = {
-  "Air Purifier": [
-    "HEPA Filter",
-    "Activated Carbon",
-    "Ionizer",
-    "UV-C Light",
-    "Smart / Wi-Fi",
-    "With Humidifier"
-  ],
-  "Chimney": [
-    "Wall Mounted",
-    "Island Hood",
-    "Built-in",
-    "Baffle Filter",
-    "Filterless (Auto-Clean)",
-    "Mesh / Cassette Filter",
-    "Ducted",
-    "Ductless",
-    "Auto-Clean Feature",
-    "Suction: 800-1000 m³/hr",
-    "Suction: 1100-1300 m³/hr",
-    "Suction: 1400+ m³/hr"
-  ],
-  "Coffee Maker": [
-    "Fully Automatic",
-    "Semi-Automatic",
-    "Manual Brewer",
-    "Espresso Machine",
-    "Drip Coffee",
-    "Pod / Capsule",
-    "French Press",
-    "Moka Pot",
-    "Bean-to-Cup",
-    "Cold Brew"
-  ],
-  "Juicer": [
-    "Centrifugal (Fast)",
-    "Masticating (Cold Press)",
-    "Horizontal",
-    "Vertical",
-    "Multi-Function"
-  ],
-  "Laptop": [
-    "Everyday Use",
-    "Ultrabook",
-    "Gaming",
-    "2-in-1 / Convertible",
-    "Professional / Workstation",
-    "Chromebook",
-    "Windows",
-    "macOS",
-    "13-14 inch",
-    "15-16 inch",
-    "17+ inch"
-  ],
-  "Microwave": [
-    "Solo",
-    "Grill",
-    "Convection",
-    "Countertop",
-    "Over-the-Range",
-    "Inverter Technology"
-  ],
-  "Mobile": [
-    "Android",
-    "iOS",
-    "Budget (< ₹15,000)",
-    "Mid-Range (₹15k-₹35k)",
-    "Flagship (> ₹50,000)",
-    "Foldable",
-    "Gaming Phone"
-  ],
-  "Refrigerator": [
-    "Single Door",
-    "Double Door (Top Freezer)",
-    "Double Door (Bottom Mount)",
-    "Side-by-Side",
-    "French Door",
-    "Direct Cool",
-    "Frost-Free",
-    "Convertible",
-    "With Water/Ice Dispenser"
-  ],
-  "TV": [
-    "LED-LCD",
-    "QLED",
-    "Neo QLED",
-    "OLED",
-    "HD Ready (720p)",
-    "Full HD (1080p)",
-    "4K UHD (2160p)",
-    "8K",
-    "Google TV",
-    "webOS (LG)",
-    "Tizen (Samsung)"
-  ],
-  "Vaccum Cleaner": [
-    "Canister",
-    "Upright",
-    "Stick / Cordless",
-    "Robotic",
-    "Handheld",
-    "Dry Only",
-    "Wet & Dry",
-    "Bagged",
-    "Bagless"
-  ],
-  "Water Purifier": [
-    "RO (Reverse Osmosis)",
-    "UV (Ultraviolet)",
-    "UF (Ultrafiltration)",
-    "RO + UV",
-    "RO + UV + UF",
-    "With Mineralizer",
-    "Wall-Mounted",
-    "Gravity-Based"
-  ]
-};
+  // State for the Product Modal
+  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+
+  // Helper function to generate slugs
+  const generateSlug = (text: string) => {
+    return text
+      .toLowerCase()
+      .replace(/ /g, '-')
+      .replace(/[^\w-]+/g, ''); // Remove special characters
+  };
+
+  // Add this inside your AdminDashboard component in Doremon.tsx
+  const subCategoryMap: { [key: string]: string[] } = {
+    "Air Purifier": [
+      "HEPA Filter",
+      "Activated Carbon",
+      "Ionizer",
+      "UV-C Light",
+      "Smart / Wi-Fi",
+      "With Humidifier"
+    ],
+    "Chimney": [
+      "Wall Mounted",
+      "Island Hood",
+      "Built-in",
+      "Baffle Filter",
+      "Filterless (Auto-Clean)",
+      "Mesh / Cassette Filter",
+      "Ducted",
+      "Ductless",
+      "Auto-Clean Feature",
+      "Suction: 800-1000 m³/hr",
+      "Suction: 1100-1300 m³/hr",
+      "Suction: 1400+ m³/hr"
+    ],
+    "Coffee Maker": [
+      "Fully Automatic",
+      "Semi-Automatic",
+      "Manual Brewer",
+      "Espresso Machine",
+      "Drip Coffee",
+      "Pod / Capsule",
+      "French Press",
+      "Moka Pot",
+      "Bean-to-Cup",
+      "Cold Brew"
+    ],
+    "Juicer": [
+      "Centrifugal (Fast)",
+      "Masticating (Cold Press)",
+      "Horizontal",
+      "Vertical",
+      "Multi-Function"
+    ],
+    "Laptop": [
+      "Everyday Use",
+      "Ultrabook",
+      "Gaming",
+      "2-in-1 / Convertible",
+      "Professional / Workstation",
+      "Chromebook",
+      "Windows",
+      "macOS",
+      "13-14 inch",
+      "15-16 inch",
+      "17+ inch"
+    ],
+    "Microwave": [
+      "Solo",
+      "Grill",
+      "Convection",
+      "Countertop",
+      "Over-the-Range",
+      "Inverter Technology"
+    ],
+    "Mobile": [
+      "Android",
+      "iOS",
+      "Budget (< ₹15,000)",
+      "Mid-Range (₹15k-₹35k)",
+      "Flagship (> ₹50,000)",
+      "Foldable",
+      "Gaming Phone"
+    ],
+    "Refrigerator": [
+      "Single Door",
+      "Double Door (Top Freezer)",
+      "Double Door (Bottom Mount)",
+      "Side-by-Side",
+      "French Door",
+      "Direct Cool",
+      "Frost-Free",
+      "Convertible",
+      "With Water/Ice Dispenser"
+    ],
+    "TV": [
+      "LED-LCD",
+      "QLED",
+      "Neo QLED",
+      "OLED",
+      "HD Ready (720p)",
+      "Full HD (1080p)",
+      "4K UHD (2160p)",
+      "8K",
+      "Google TV",
+      "webOS (LG)",
+      "Tizen (Samsung)"
+    ],
+    "Vaccum Cleaner": [
+      "Canister",
+      "Upright",
+      "Stick / Cordless",
+      "Robotic",
+      "Handheld",
+      "Dry Only",
+      "Wet & Dry",
+      "Bagged",
+      "Bagless"
+    ],
+    "Water Purifier": [
+      "RO (Reverse Osmosis)",
+      "UV (Ultraviolet)",
+      "UF (Ultrafiltration)",
+      "RO + UV",
+      "RO + UV + UF",
+      "With Mineralizer",
+      "Wall-Mounted",
+      "Gravity-Based"
+    ]
+  };
 
   const authorNames = [
     "Rohan Gupta",
@@ -210,7 +230,7 @@ const subCategoryMap: { [key: string]: string[] } = {
     "Karan Joshi",
     "Sneha Rao"
   ];
-  
+
   const categoryExcerpts: { [key: string]: string } = {
     "Air Purifier": "Breathe cleaner air at home. We review the top air purifiers to help you find the best one for removing pollutants, allergens, and odors.",
     "Chimney": "Keep your kitchen smoke-free and fresh. This guide covers the best kitchen chimneys, comparing suction power, noise levels, and filter types.",
@@ -225,7 +245,6 @@ const subCategoryMap: { [key: string]: string[] } = {
     "Water Purifier": "Ensure your family drinks safe, clean water. We review the top water purifiers, comparing RO, UV, and UF technologies.",
   };
 
-  // --- REPLACE YOUR OLD CONTENT OBJECT WITH THIS ---
   const categoryContentTemplates: { [key: string]: string } = {
     "Air Purifier": `
 When choosing an air purifier, the main types to consider are those with HEPA filters, which excel at capturing fine particles, and those with activated carbon filters for odors and gases. Many top models from brands like Philips, Dyson, and Mi combine these technologies. Entry-level personal purifiers start around ₹7,000, while high-capacity room models can go up to ₹30,000. Their primary purpose is to remove indoor air pollutants, allergens, and dust, significantly improving residential air quality.`,
@@ -248,80 +267,66 @@ Upgrading your home entertainment setup means choosing between LED, QLED, and OL
     "Vaccum Cleaner": `
 Keeping your floors spotless is easier with the right vacuum. Options range from portable handhelds (starting at ₹2,000) to powerful canister vacuums from Eureka Forbes. Lightweight, cordless stick vacuums are very convenient, with premium brands like Dyson offering high-end performance. Robotic vacuums offer automated cleaning for daily maintenance.`,
     "Water Purifier": `
-Ensuring safe drinking water in India often requires a purifier. The technology you need depends on your water source. RO (Reverse Osmosis) is essential for hard water, while UV (Ultraviolet) kills bacteria and viruses. Top brands like Kent, Aquaguard, and Pureit often combine these in RO+UV models, which typically range from ₹8,000 to ₹20,000.`,
+Ensuring safe drinking water in India often requires a purifier. The technology you need depends on your water source. RO (Reverse Osmosis) is essential for hard water, while UV (Ultraviolet) kills bacteria and viruses. Top brands like Kent, Aquaguard, and Pureit often combine these in RO+UV models, which typically range from ₹8,0g00 to ₹20,000.`,
   };
-  // --- END ---
 
   useEffect(() => {
     fetchArticlesFromSupabase();
-    fetchCategories();    
+    fetchCategories();
   }, []);
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [editingProduct, setEditingProduct] = useState<Top10Product | null>(null);
-
   const filteredArticles = articles.filter((article) => {
-    const matchesSearch = article.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                         article.excerpt.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      article.excerpt.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "all" || article.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
-
 
   const fetchArticlesFromSupabase = async () => {
     const { data, error } = await supabase
       .from("articles")
       .select("*")
-      .order("created_at", { ascending: false }); // <-- ADD THIS LINE
+      .order("created_at", { ascending: false });
 
     if (error) console.error(error);
     else setArticles(data ?? []);
   };
 
-
-const fetchCategories = async () => {
+  const fetchCategories = async () => {
     try {
-      console.log("Attempting to fetch categories..."); // <-- Debug log
       const { data, error } = await supabase
         .from("categories")
         .select("id, name, slug")
         .order("name", { ascending: true });
 
       if (error) {
-        // If Supabase sends an error, log it
-        console.error("Error fetching categories:", error.message); // <-- Error log
+        console.error("Error fetching categories:", error.message);
         throw error;
       }
-
-      // Log the data we received
-      //console.log("Fetched categories DATA:", data); // <-- Data log
-      
       setCategories(data ?? []);
     } catch (err: any) {
       console.error("An error occurred in fetchCategories:", err.message);
     }
   };
 
-
   const handleCreateNew = () => {
     const randomAuthor = authorNames[Math.floor(Math.random() * authorNames.length)];
 
     const newArticle: Article = {
+      id: "", // No ID for a new article
       title: "top LED TV 2025",
       slug: "led-2025",
       content: "you should definetly buy a LED TV",
       excerpt: "",
       featured_image: "",
       category: "Uncategorized",
-      category_id: "89d28265-b103-4638-b0c8-7ef0c0e6f6f0",
-      author: randomAuthor,      
+      category_id: "89d28265-b103-4638-b0c8-7ef0c0e6f6f0", // Default category
+      author: randomAuthor,
       status: "draft",
       views: 0,
       date: new Date().toISOString().slice(0, 10),
-      tags: [], 
-      top10_products: [],
+      tags: [],
+      article_products: [],
       smart_pick: { recommendation: "" },
       related_articles: [],
     };
@@ -329,10 +334,8 @@ const fetchCategories = async () => {
     setIsEditing(true);
   };
 
-
   const handlePublish = async (articleId: string) => {
     try {
-      // Update only the 'status' field in the database
       const { error } = await supabase
         .from("articles")
         .update({ status: "published" })
@@ -344,7 +347,7 @@ const fetchCategories = async () => {
         title: "Article Published!",
         description: "The article is now live.",
       });
-      fetchArticlesFromSupabase(); // Refresh the article list
+      fetchArticlesFromSupabase(); // Refresh
     } catch (err: any) {
       console.error("Publish failed:", err);
       toast({
@@ -355,49 +358,37 @@ const fetchCategories = async () => {
     }
   };
 
-
-
-const loadFullArticleData = async (articleId: string) => {
+  const loadFullArticleData = async (articleId: string) => {
     console.log(`[Debug] loadFullArticleData called with ID: ${articleId}`);
     try {
-      setIsLoadingTop10(true); // We can still use this for the main loading state
+      setIsLoadingTop10(true);
 
-      // This is the single, nested query
       const { data, error } = await supabase
         .from("articles")
         .select(`
           *,
-          top10_products(*),
+          article_products (
+            rank,
+            product_id,
+            products ( * ) 
+          ),
           smart_pick_recommendations(*),
           related_articles(*)
         `)
         .eq("id", articleId)
-        .order("rank", { referencedTable: "top10_products", ascending: true }) // Order products
-        .single(); // Get a single article
+        .order("rank", { referencedTable: "article_products", ascending: true }) // Corrected
+        .single();
 
       console.log("[Debug] loadFullArticleData response:", { data, error });
 
       if (error) throw error;
 
       if (data) {
-        // --- 1. Map Top 10 Products ---
-        const products: Top10Product[] = (data.top10_products || []).map((row: any, idx: number) => ({
-          rank: row.rank ?? idx + 1,
-          name: row.name ?? "",
-          short_description: row.short_description ?? "",
-          image: row.image ?? "",
-          rating: typeof row.rating === "number" ? row.rating : parseFloat(row.rating ?? "0") || 0,
-          pros: Array.isArray(row.pros) ? row.pros : (row.pros ? JSON.parse(row.pros) : []),
-          cons: Array.isArray(row.cons) ? row.cons : (row.cons ? JSON.parse(row.cons) : []),
-          amazon_price: row.amazon_price ?? 0,
-          amazon_discount: row.amazon_discount ?? null,
-          amazon_price_change: row.amazon_price_change ?? null,
-          amazon_link: row.amazon_link ?? "",
-          flipkart_price: row.flipkart_price ?? 0,
-          flipkart_discount: row.flipkart_discount ?? null,
-          flipkart_price_change: row.flipkart_price_change ?? null,
-          flipkart_link: row.flipkart_link ?? "",
-          badge: row.badge ?? null,
+        // --- 1. Map Products ---
+        const products: ArticleProduct[] = (data.article_products || []).map((ap: any) => ({
+          rank: ap.rank,
+          product_id: ap.product_id,
+          product: ap.products,
         }));
 
         // --- 2. Extract Smart Pick ---
@@ -411,11 +402,11 @@ const loadFullArticleData = async (articleId: string) => {
           url: row.url ?? ""
         }));
 
-        // --- 4. Set the state ONCE with all data ---
+        // --- 4. Set state ---
         setSelectedArticle((prev) => prev ? {
-          ...prev, // Keep the base article data from the list
-          ...data,  // Overwrite with full data
-          top10_products: products,
+          ...prev,
+          ...data,
+          article_products: products, // Corrected
           smart_pick: smartPick,
           related_articles: relatedArticles
         } : null);
@@ -432,127 +423,136 @@ const loadFullArticleData = async (articleId: string) => {
     }
   };
 
-
   const handleEdit = (article: Article) => {
     console.log(`[Debug] Editing article with ID: ${article.id}`);
-    
-    // Set default empty values to prevent the UI from crashing
-    // before the data is loaded.
     setSelectedArticle({
       ...article,
-      top10_products: [],
+      article_products: [], // Default empty
       smart_pick: { recommendation: "" },
       related_articles: []
     });
-    
     setIsEditing(true);
-    
+
     if (article.id) {
-      // Call the new single function instead of three old ones
       loadFullArticleData(article.id);
     }
   };
 
+  const handleSave = async () => {
+    if (!selectedArticle) return;
+    try {
+      let articleData;
+      const articlePayload = {
+        title: selectedArticle.title,
+        slug: selectedArticle.slug,
+        content: selectedArticle.content,
+        excerpt: selectedArticle.excerpt,
+        featured_image: selectedArticle.featured_image,
+        category: selectedArticle.category,
+        category_id: selectedArticle.category_id,
+        author: selectedArticle.author,
+        status: selectedArticle.status,
+        views: selectedArticle.views,
+        date: selectedArticle.date,
+        tags: selectedArticle.tags,
+      };
 
+      if (selectedArticle.id) {
+        const { data, error } = await supabase
+          .from("articles")
+          .update(articlePayload)
+          .eq("id", selectedArticle.id)
+          .select()
+          .single();
+        if (error) throw error;
+        articleData = data;
+      } else {
+        const { data, error } = await supabase
+          .from("articles")
+          .insert([articlePayload])
+          .select()
+          .single();
+        if (error) throw error;
+        articleData = data;
+      }
 
+      const article_id = articleData.id;
 
-const handleSave = async () => {
-  if (!selectedArticle) return;
-  try {
-    let articleData;
-    if (selectedArticle.id) {
-      const { data, error } = await supabase
-        .from("articles")
-        .update({
-          title: selectedArticle.title,
-          slug: selectedArticle.slug,
-          content: selectedArticle.content,
-          excerpt: selectedArticle.excerpt,
-          featured_image: selectedArticle.featured_image,
-          category: selectedArticle.category,
-          category_id: selectedArticle.category_id,
-          author: selectedArticle.author, 
-          status: selectedArticle.status,
-          views: selectedArticle.views,
-          date: selectedArticle.date,
-          tags: selectedArticle.tags,
-        })
-        .eq("id", selectedArticle.id)
-        .select()
-        .single();
-      if (error) throw error;
-      articleData = data;
-    } else {
-      const { data, error } = await supabase
-        .from("articles")
-        .insert([{
-          title: selectedArticle.title,
-          slug: selectedArticle.slug,
-          content: selectedArticle.content,
-          excerpt: selectedArticle.excerpt,
-          featured_image: selectedArticle.featured_image,
-          category: selectedArticle.category,
-          category_id: selectedArticle.category_id,          
-          author: selectedArticle.author, 
-          status: selectedArticle.status,
-          views: selectedArticle.views,
-          date: selectedArticle.date,
-          tags: selectedArticle.tags,
-        }])
-        .select()
-        .single();
-      if (error) throw error;
-      articleData = data;
+      // Save article_products
+      if (selectedArticle.article_products && selectedArticle.article_products.length > 0) {
+        await saveArticleProducts(article_id, selectedArticle.article_products);
+      } else {
+        await deleteArticleProducts(article_id);
+      }
+
+      // Save Smart Pick
+      await saveSmartPick(article_id, selectedArticle.smart_pick);
+
+      // Save Related Articles
+      await saveRelatedArticles(article_id, selectedArticle.related_articles);
+
+      toast({
+        title: "Success!",
+        description: "Your article has been saved.",
+      });
+      fetchArticlesFromSupabase();
+
+      setIsEditing(false);
+      setSelectedArticle(null);
+    } catch (err: any) {
+      console.error(err);
+      toast({
+        variant: "destructive",
+        title: "Save Failed",
+        description: err.message || "An unknown error occurred.",
+      });
     }
+  };
 
-    const article_id = articleData.id;
+  // Deletes all product links for a given article
+  const deleteArticleProducts = async (articleId: string) => {
+    const { error } = await supabase
+      .from("article_products")
+      .delete()
+      .eq("article_id", articleId);
 
-    // Save top10_products (delete+insert approach)
-    if (selectedArticle.top10_products && selectedArticle.top10_products.length > 0) {
-      await saveTop10Products(article_id, selectedArticle.top10_products);
-    } else {
-      // Optional: if no top10 products now, remove any existing DB rows
-      await deleteTop10ProductsForArticle(article_id);
+    if (error) throw error;
+  };
+
+  // Saves the new set of product links for an article
+  const saveArticleProducts = async (articleId: string, products: ArticleProduct[]) => {
+    try {
+      if (!articleId) throw new Error("Missing articleId");
+
+      const normalized = reRankProducts(products);
+      await deleteArticleProducts(articleId);
+
+      const payload = normalized.map((ap) => ({
+        article_id: articleId,
+        product_id: ap.product_id,
+        rank: ap.rank,
+      }));
+
+      const { data, error } = await supabase.from("article_products").insert(payload);
+
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      console.error("saveArticleProducts error:", err);
+      throw err;
     }
-
-    // Save Smart Pick
-    await saveSmartPick(article_id, selectedArticle.smart_pick);
-
-    // Save Related Articles
-    await saveRelatedArticles(article_id, selectedArticle.related_articles);
-
-    toast({
-      title: "Success!",
-      description: "Your article has been saved.",
-    });
-    fetchArticlesFromSupabase();
-
-    setIsEditing(false);
-    setSelectedArticle(null);
-  } catch (err: any) {
-    console.error(err);
-    toast({
-      variant: "destructive",
-      title: "Save Failed",
-      description: err.message || "An unknown error occurred.",
-    });
-  }
-};
+  };
 
   const handleDelete = async (articleId: string) => {
     try {
-      // --- FIX: Delete from ALL related tables first ---
-      
-      // 1. Delete associated Top 10 Products
-      await deleteTop10ProductsForArticle(articleId);
+      // 1. Delete associated Products
+      await deleteArticleProducts(articleId);
 
       // 2. Delete associated Smart Pick
       await supabase.from("smart_pick_recommendations").delete().eq("article_id", articleId);
-      
+
       // 3. Delete associated Related Articles
       await supabase.from("related_articles").delete().eq("article_id", articleId);
-
-      // --- END OF FIX ---
 
       // 4. Now, delete the main article
       const { error } = await supabase
@@ -560,15 +560,15 @@ const handleSave = async () => {
         .delete()
         .eq("id", articleId);
 
-      if (error) throw error; // If this still fails, throw the error
+      if (error) throw error;
 
       toast({
         title: "Article Deleted",
         description: "The article has been permanently deleted.",
       });
 
-      fetchArticlesFromSupabase(); // Refresh the list
-      setDeleteId(null); // Close the dialog
+      fetchArticlesFromSupabase(); // Refresh
+      setDeleteId(null); // Close dialog
     } catch (err: any) {
       console.error("Delete failed:", err);
       toast({
@@ -579,175 +579,35 @@ const handleSave = async () => {
     }
   };
 
-const handleTagChange = (tag: string, checked: boolean) => {
-  if (!selectedArticle) return;
-  const currentTags = selectedArticle.tags || [];
-  if (checked) {
-    // Add the tag
-    setSelectedArticle({
-      ...selectedArticle,
-      tags: [...currentTags, tag],
-    });
-  } else {
-    // Remove the tag
-    setSelectedArticle({
-      ...selectedArticle,
-      tags: currentTags.filter((t) => t !== tag),
-    });
-  }
-};
-
-  // Add new product (keeps sensible defaults)
-  const addProduct = () => {
+  const handleTagChange = (tag: string, checked: boolean) => {
     if (!selectedArticle) return;
-
-    // --- Helper functions for dummy data ---
-    const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
-    const randPrice = (min: number, max: number) => parseFloat((Math.random() * (max - min) + min).toFixed(2));
-    const randRating = () => parseFloat((Math.random() * (5.0 - 3.5) + 3.5).toFixed(1));
-    const badges: (string | null)[] = ["Best Seller", "Value Pick", "Editors Choice", null, null];
-    
-    // --- THIS IS THE CRITICAL PART ---
-    // 'uniqueId' must be defined *before* 'newProduct' is created.
-    const uniqueId = randInt(1000, 9999);
-    // ---
-
-    const newProduct: Top10Product = {
-      rank: selectedArticle.top10_products.length + 1,
-      name: `Test Product ${uniqueId}`,
-      short_description: `This is a randomized test product description (ID: ${uniqueId}). Lorem ipsum dolor sit amet.`,
-      image: `https://picsum.photos/seed/${uniqueId}/200/200`, // Random placeholder image
-      rating: randRating(),
-      pros: [`Random pro ${randInt(1, 100)}`, `Another good point ${randInt(1, 100)}`],
-      cons: [`Random con ${randInt(1, 100)}`, `A drawback to consider ${randInt(1, 100)}`],
-      amazon_price: randPrice(5000, 40000),
-      amazon_discount: randInt(5, 50), // 5% to 50% discount
-      amazon_price_change: null,
-      amazon_link: `https://www.amazon.in/dp/TEST${uniqueId}`,
-      flipkart_price: randPrice(5000, 40000),
-      flipkart_discount: randInt(5, 50),
-      flipkart_price_change: null,
-      flipkart_link: `https://www.flipkart.com/p/TEST${uniqueId}`,
-      badge: badges[randInt(0, badges.length - 1)], // Randomly pick a badge or null
-    };
-    setSelectedArticle({
-      ...selectedArticle,
-      top10_products: [...selectedArticle.top10_products, newProduct],
-    });
+    const currentTags = selectedArticle.tags || [];
+    if (checked) {
+      setSelectedArticle({
+        ...selectedArticle,
+        tags: [...currentTags, tag],
+      });
+    } else {
+      setSelectedArticle({
+        ...selectedArticle,
+        tags: currentTags.filter((t) => t !== tag),
+      });
+    }
   };
+
+  // Re-rank products in-place (1..N)
+  const reRankProducts = (products: ArticleProduct[]) =>
+    products.map((p, i) => ({ ...p, rank: i + 1 }));
 
   // Remove product and re-rank
   const removeProduct = (index: number) => {
     if (!selectedArticle) return;
-    const updated = selectedArticle.top10_products.filter((_, i) => i !== index);
+    const updated = selectedArticle.article_products.filter((_, i) => i !== index);
     setSelectedArticle({
       ...selectedArticle,
-      top10_products: reRankProducts(updated),
+      article_products: reRankProducts(updated),
     });
   };
-
-  // Update field in a product
-  const updateProduct = (index: number, field: keyof Top10Product, value: any) => {
-    if (!selectedArticle) return;
-    const updated = [...selectedArticle.top10_products];
-    // If pros/cons provided as CSV or textarea, ensure array shape at caller
-    updated[index] = { ...updated[index], [field]: value };
-    setSelectedArticle({ ...selectedArticle, top10_products: updated });
-  };
-
-  const loadTop10Products = async (articleId: string) => {
-    try {
-      setLoadingTop10(true);
-      const { data, error } = await supabase
-        .from("top10_products")
-        .select("*")
-        .eq("article_id", articleId)
-        .order("rank", { ascending: true });
-
-      if (error) throw error;
-
-      // Map DB rows to Top10Product shape if names differ
-      const products: Top10Product[] = (data || []).map((row: any, idx: number) => ({
-        rank: row.rank ?? idx + 1,
-        name: row.name ?? "",
-        short_description: row.short_description ?? "",
-        image: row.image ?? "",
-        rating: typeof row.rating === "number" ? row.rating : parseFloat(row.rating ?? "0") || 0,
-        pros: Array.isArray(row.pros) ? row.pros : (row.pros ? JSON.parse(row.pros) : []),
-        cons: Array.isArray(row.cons) ? row.cons : (row.cons ? JSON.parse(row.cons) : []),
-        amazon_price: row.amazon_price ?? 0,
-        amazon_discount: row.amazon_discount ?? null,
-        amazon_price_change: row.amazon_price_change ?? null,
-        amazon_link: row.amazon_link ?? "",
-        flipkart_price: row.flipkart_price ?? 0,
-        flipkart_discount: row.flipkart_discount ?? null,
-        flipkart_price_change: row.flipkart_price_change ?? null,
-        flipkart_link: row.flipkart_link ?? "",
-        badge: row.badge ?? null,
-      }));
-
-      setSelectedArticle((prev) => prev ? { ...prev, top10_products: products } : null);
-    } catch (err) {
-      console.error("Error loading top10_products:", err);
-    } finally {
-      setLoadingTop10(false);
-    }
-  };
-
-
-
-
-
-  const deleteTop10ProductsForArticle = async (articleId: string) => {
-    const { error } = await supabase.from("top10_products").delete().eq("article_id", articleId);
-      if (error) throw error;
-    };
-
-    const saveTop10Products = async (articleId: string, products: Top10Product[]) => {
-      try {
-        if (!articleId) throw new Error("Missing articleId");
-        // Ensure rank order
-        const normalized = reRankProducts(products);
-
-        // Delete old -> insert new
-        await deleteTop10ProductsForArticle(articleId);
-
-        const payload = normalized.map((p) => sanitizeProductForDb(p, articleId));
-        const { data, error } = await supabase.from("top10_products").insert(payload);
-
-        if (error) throw error;
-        return data;
-      } catch (err) {
-        console.error("saveTop10Products error:", err);
-        throw err;
-      }
-    };
-
-
-  // Re-rank products in-place (1..N)
-  const reRankProducts = (products: Top10Product[]) =>
-    products.map((p, i) => ({ ...p, rank: i + 1 }));
-
-  // Clean product for DB insert (ensures nulls instead of undefined)
-  const sanitizeProductForDb = (p: Top10Product, article_id: string) => ({
-    article_id,
-    rank: p.rank,
-    name: p.name ?? "",
-    short_description: p.short_description ?? "",
-    image: p.image ?? "",
-    rating: p.rating ?? 0,
-    pros: p.pros ?? [],
-    cons: p.cons ?? [],
-    amazon_price: p.amazon_price ?? 0,
-    amazon_discount: p.amazon_discount ?? null,
-    amazon_price_change: p.amazon_price_change ?? null,
-    amazon_link: p.amazon_link ?? "",
-    flipkart_price: p.flipkart_price ?? 0,
-    flipkart_discount: p.flipkart_discount ?? null,
-    flipkart_price_change: p.flipkart_price_change ?? null,
-    flipkart_link: p.flipkart_link ?? "",
-    badge: p.badge ?? null,
-  });
 
   const addRelatedArticle = () => {
     if (!selectedArticle) return;
@@ -772,50 +632,10 @@ const handleTagChange = (tag: string, checked: boolean) => {
     setSelectedArticle({ ...selectedArticle, related_articles: updated });
   };
 
-
-
-  const loadSmartPick = async (articleId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("smart_pick_recommendations")
-        .select("*")
-        .eq("article_id", articleId)
-        .maybeSingle(); // Use maybeSingle as it might not exist
-
-      if (error) throw error;
-      
-      setSelectedArticle((prev) => 
-        prev ? { ...prev, smart_pick: { recommendation: data?.recommendation ?? "" } } : null
-      );
-    } catch (err) {
-      console.error("Error loading smart_pick:", err);
-    }
-  };
-
-  const loadRelatedArticles = async (articleId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("related_articles")
-        .select("title, url")
-        .eq("article_id", articleId);
-
-      if (error) throw error;
-
-      setSelectedArticle((prev) => 
-        prev ? { ...prev, related_articles: data ?? [] } : null
-      );
-    } catch (err) {
-      console.error("Error loading related_articles:", err);
-    }
-  };
-
-
   const saveSmartPick = async (articleId: string, smartPick: SmartPick) => {
     try {
-      // 1. Delete old
       await supabase.from("smart_pick_recommendations").delete().eq("article_id", articleId);
 
-      // 2. Insert new (if recommendation text exists)
       if (smartPick && smartPick.recommendation) {
         const { error } = await supabase.from("smart_pick_recommendations").insert({
           article_id: articleId,
@@ -825,26 +645,23 @@ const handleTagChange = (tag: string, checked: boolean) => {
       }
     } catch (err) {
       console.error("saveSmartPick error:", err);
-      throw err; // Re-throw to be caught by handleSave
+      throw err;
     }
   };
 
-
   const saveRelatedArticles = async (articleId: string, articles: RelatedArticle[]) => {
     try {
-      // 1. Delete old
       await supabase.from("related_articles").delete().eq("article_id", articleId);
 
-      // 2. Insert new (if any)
       if (articles && articles.length > 0) {
         const payload = articles
-          .filter(a => a.title && a.url) // Only save valid rows
+          .filter(a => a.title && a.url)
           .map(article => ({
             article_id: articleId,
             title: article.title,
             url: article.url,
           }));
-        
+
         if (payload.length > 0) {
           const { error } = await supabase.from("related_articles").insert(payload);
           if (error) throw error;
@@ -852,17 +669,303 @@ const handleTagChange = (tag: string, checked: boolean) => {
       }
     } catch (err) {
       console.error("saveRelatedArticles error:", err);
-      throw err; // Re-throw to be caught by handleSave
+      throw err;
     }
   };
 
+// --- NEW COMPONENT for Product Search/Create ---
+  const ProductSearchModal = () => {
+    const [tab, setTab] = useState("search"); // 'search' or 'create'
+    const [newProduct, setNewProduct] = useState({
+      name: "",
+      slug: "",
+      short_description: "",
+      image: "",
+      amazon_link: "",
+      flipkart_link: "",
+      category_id: selectedArticle?.category_id || null,
+      tags: [] as string[]
+    });
+
+    const [isLoadingProducts, setIsLoadingProducts] = useState(false);
+    const [categoryProducts, setCategoryProducts] = useState<Product[]>([]);
+    const [filterQuery, setFilterQuery] = useState(""); // For instant filtering
+
+    // Reset form when modal opens or category changes
+    useEffect(() => {
+        setNewProduct({
+          name: "",
+          slug: "",
+          short_description: "",
+          image: "",
+          amazon_link: "",
+          flipkart_link: "",
+          category_id: selectedArticle?.category_id || null,
+          tags: []
+        });
+    }, [isProductModalOpen, selectedArticle?.category_id]);
+    
+    // Fetch products ONCE when modal opens
+    useEffect(() => {
+      const fetchProductsByCategory = async () => {
+        if (!isProductModalOpen || !selectedArticle?.category_id) {
+          setCategoryProducts([]);
+          return;
+        }
+        
+        setIsLoadingProducts(true);
+        setFilterQuery(""); // Reset filter
+        try {
+          const { data, error } = await supabase
+            .from("products")
+            .select("*")
+            .eq("category_id", selectedArticle.category_id);
+            
+          if (error) throw error;
+          setCategoryProducts(data || []);
+        } catch (err: any) {
+          console.error("Failed to fetch products:", err);
+          toast({ variant: "destructive", title: "Failed to load products" });
+        } finally {
+          setIsLoadingProducts(false);
+        }
+      };
+
+      fetchProductsByCategory();
+    }, [isProductModalOpen, selectedArticle?.category_id]);
+
+    // Instantly filter the loaded list
+    const filteredProducts = useMemo(() => {
+      if (!filterQuery) {
+        return categoryProducts; // No filter? Show all.
+      }
+      return categoryProducts.filter(product =>
+        product.name.toLowerCase().includes(filterQuery.toLowerCase())
+      );
+    }, [categoryProducts, filterQuery]);
 
 
+    // Handle tag changes for the new product
+    const handleProductTagChange = (tag: string, checked: boolean) => {
+      const currentTags = newProduct.tags || [];
+      if (checked) {
+        setNewProduct({ ...newProduct, tags: [...currentTags, tag] });
+      } else {
+        setNewProduct({ ...newProduct, tags: newProduct.tags.filter((t) => t !== tag) });
+      }
+    };
 
+    // Create a new product in the master 'products' table
+    const handleCreateProduct = async () => {
+      if (!newProduct.name || !newProduct.slug) {
+        toast({ variant: "destructive", title: "Name and Slug are required" });
+        return;
+      }
+      try {
+        const { data, error } = await supabase
+          .from("products")
+          .insert({
+            name: newProduct.name,
+            slug: newProduct.slug,
+            short_description: newProduct.short_description,
+            image: newProduct.image,
+            amazon_link: newProduct.amazon_link,
+            flipkart_link: newProduct.flipkart_link,
+            tags: newProduct.tags,
+            category_id: selectedArticle?.category_id || null
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        toast({ title: "Product Created!", description: data.name });
+        onProductSelect(data);
+      } catch (err: any) {
+         console.error("Create product failed:", err);
+        if (err.message.includes("duplicate key value violates unique constraint")) {
+             toast({ variant: "destructive", title: "Create Failed", description: "A product with this slug already exists." });
+        } else {
+             toast({ variant: "destructive", title: "Create failed", description: err.message });
+        }
+      }
+    };
+
+    // Add a selected product to the article's state
+    const onProductSelect = (product: Product) => {
+      if (!selectedArticle) return;
+
+      if (selectedArticle.article_products.find(ap => ap.product_id === product.id)) {
+        toast({ variant: "destructive", title: "Product already added" });
+        return;
+      }
+
+      const newArticleProduct: ArticleProduct = {
+        rank: selectedArticle.article_products.length + 1,
+        product_id: product.id,
+        product: product,
+      };
+
+      setSelectedArticle({
+        ...selectedArticle,
+        article_products: [...selectedArticle.article_products, newArticleProduct],
+      });
+
+      setIsProductModalOpen(false);
+    };
+
+    return (
+      <Dialog open={isProductModalOpen} onOpenChange={setIsProductModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add Product to Article</DialogTitle>
+            <DialogDescription>
+              Search for an existing product or create a new one to track.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="search">Search</TabsTrigger>
+              <TabsTrigger value="create">Create New</TabsTrigger>
+            </TabsList>
+
+            {/* --- UPDATED SEARCH TAB --- */}
+            <TabsContent value="search">
+              <div className="p-4 space-y-4">
+                <Input
+                  placeholder="Filter products in this category..."
+                  value={filterQuery}
+                  onChange={(e) => setFilterQuery(e.target.value)}
+                />
+                <ScrollArea className="h-64">
+                  <div className="space-y-2">
+                    {isLoadingProducts && (
+                      <p className="text-center text-sm text-muted-foreground">Loading products...</p>
+                    )}
+                    
+                    {!isLoadingProducts && filteredProducts.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center">
+                        No products found. (Try the "Create New" tab)
+                      </p>
+                    )}
+                    
+                    {/* --- THIS IS THE UPDATED LIST --- */}
+                    {!isLoadingProducts && filteredProducts.map((product, index) => ( // <-- Added 'index'
+                      <div
+                        key={product.id}
+                        className="p-2 border rounded-md flex items-center justify-between hover:bg-secondary cursor-pointer"
+                        onClick={() => onProductSelect(product)}
+                      >
+                        {/* This div now controls the left side, preventing overflow */}
+                        <div className="flex items-center gap-3 flex-1 min-w-0"> {/* <-- ADDED flex-1 min-w-0 */}
+                          
+                          {/* 1. Added Serial Number */}
+                          <span className="text-sm font-medium text-muted-foreground w-6 text-right">
+                            {index + 1}.
+                          </span>
+                         
+                        
+                          {/* 3. Added flex-1 min-w-0 and truncate to text */}
+                          <div className="flex-1 min-w-0"> {/* <-- ADDED */}
+                            <p className="font-semibold truncate">{product.name}</p> {/* <-- ADDED truncate */}
+                            <p className="text-xs text-muted-foreground truncate">{product.slug}</p> {/* <-- ADDED truncate */}
+                          </div>
+                        </div>
+                        
+                        {/* 4. Added margin to button for spacing */}
+                        <Button size="sm" className="ml-4">Select</Button> {/* <-- ADDED ml-4 */}
+                      </div>
+                    ))}
+                    {/* --- END OF UPDATED LIST --- */}
+
+                  </div>
+                </ScrollArea>
+              </div>
+            </TabsContent>
+
+            {/* --- CREATE TAB --- */}
+            <TabsContent value="create">
+              <ScrollArea className="h-[60vh]">
+                <div className="p-4 space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    This will create a new master product in your database.
+                    Category will be set to: <strong>{selectedArticle?.category || "Not set"}</strong>
+                  </p>
+                  
+                  <Label htmlFor="new-name">Product Name *</Label>
+                  <Input 
+                    id="new-name" 
+                    value={newProduct.name} 
+                    onChange={(e) => {
+                      const newName = e.target.value;
+                      const newSlug = generateSlug(newName);
+                      setNewProduct({...newProduct, name: newName, slug: newSlug });
+                    }} 
+                  />
+
+                  <Label htmlFor="new-slug">Product Slug *</Label>
+                  <Input 
+                    id="new-slug" 
+                    value={newProduct.slug} 
+                    onChange={(e) => setNewProduct({...newProduct, slug: e.target.value})} 
+                  />
+
+                  <Label htmlFor="new-desc">Short Description</Label>
+                  <Input id="new-desc" value={newProduct.short_description} onChange={(e) => setNewProduct({ ...newProduct, short_description: e.target.value })} />
+
+                  <Label htmlFor="new-image">Image URL</Label>
+                  <Input id="new-image" value={newProduct.image} onChange={(e) => setNewProduct({ ...newProduct, image: e.target.value })} />
+
+                  <Label htmlFor="new-amz">Amazon Link</Label>
+                  <Input id="new-amz" value={newProduct.amazon_link} onChange={(e) => setNewProduct({ ...newProduct, amazon_link: e.target.value })} />
+
+                  <Label htmlFor="new-fk">Flipkart Link</Label>
+                  <Input id="new-fk" value={newProduct.flipkart_link} onChange={(e) => setNewProduct({ ...newProduct, flipkart_link: e.target.value })} />
+                  
+                  <div className="space-y-2 pt-2">
+                    <Label>Product Tags / Filters</Label>
+                    <div className="rounded-md border p-4 space-y-2 max-h-48 overflow-y-auto">
+                      {selectedArticle?.category && subCategoryMap[selectedArticle.category] ? (
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {subCategoryMap[selectedArticle.category].map((tag) => (
+                            <div key={tag} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={`new-product-${tag}`}
+                                checked={newProduct.tags.includes(tag)}
+                                onCheckedChange={(checked) => handleProductTagChange(tag, !!checked)}
+                              />
+                              <Label
+                                htmlFor={`new-product-${tag}`}
+                                className="text-sm font-normal"
+                              >
+                                {tag}
+                              </Label>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          Please select an article category first to see relevant tags.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <Button onClick={handleCreateProduct} className="w-full mt-4">Create and Select Product</Button>
+                </div>
+              </ScrollArea>
+            </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
+    );
+  };
+
+  // The rest of your AdminDashboard component (return statement, etc.) goes here...
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/30 to-accent/20">
-      {/* Header */}
       <header className="sticky top-0 z-50 w-full border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60 shadow-sm">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -885,7 +988,6 @@ const handleTagChange = (tag: string, checked: boolean) => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="container mx-auto px-6 py-8">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -973,7 +1075,6 @@ const handleTagChange = (tag: string, checked: boolean) => {
                     </div>
 
                     <div className="flex gap-2 pt-2">
-                      {/* --- NEW PUBLISH BUTTON --- */}
                       {article.status === "draft" && (
                         <Button
                           onClick={(e) => {
@@ -990,7 +1091,6 @@ const handleTagChange = (tag: string, checked: boolean) => {
                         </Button>
                       )}
 
-                      {/* Existing Edit Button */}
                       <Button
                         onClick={(e) => {
                           e.preventDefault();
@@ -1005,7 +1105,6 @@ const handleTagChange = (tag: string, checked: boolean) => {
                         Edit
                       </Button>
 
-                      {/* Existing Delete Button */}
                       <Button
                         onClick={(e) => {
                           e.preventDefault();
@@ -1020,9 +1119,6 @@ const handleTagChange = (tag: string, checked: boolean) => {
                         Delete
                       </Button>
                     </div>
-
-
-
                   </div>
                 </div>
               </CardContent>
@@ -1038,14 +1134,17 @@ const handleTagChange = (tag: string, checked: boolean) => {
         </div>
       </main>
 
+      {/* Render the modal */}
+      <ProductSearchModal />
+
       {/* Edit Dialog */}
       <Dialog open={isEditing} onOpenChange={setIsEditing}>
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{selectedArticle?.title ? "Edit Article" : "Create New Article"}</DialogTitle>
+            <DialogTitle>{selectedArticle?.id ? "Edit Article" : "Create New Article"}</DialogTitle>
             <DialogDescription>Fill in the article details and manage associated content</DialogDescription>
           </DialogHeader>
-          
+
           {selectedArticle && (
             <div className="space-y-6 py-4">
               {/* Basic Info */}
@@ -1070,16 +1169,15 @@ const handleTagChange = (tag: string, checked: boolean) => {
                     />
                   </div>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="category">Category</Label>
                     <Select
                       value={selectedArticle.category_id ?? ""}
-                      // --- MODIFY THIS FUNCTION ---
                       onValueChange={(value) => {
                         const selectedCat = categories.find(cat => cat.id === value);
-                        
+
                         if (!selectedCat) {
                           setSelectedArticle({
                             ...selectedArticle,
@@ -1087,41 +1185,34 @@ const handleTagChange = (tag: string, checked: boolean) => {
                             category: "",
                             excerpt: "",
                             slug: "",
-                            content: "" // Clear content
+                            content: ""
                           });
                           return;
                         }
 
-                        // --- Slug Generation Logic ---
                         const randInt = Math.floor(Math.random() * 100) + 1;
                         const date = new Date();
                         const day = String(date.getDate()).padStart(2, '0');
                         const month = String(date.getMonth() + 1).padStart(2, '0');
                         const year = date.getFullYear();
-                        
+
                         const baseSlug = selectedCat.slug || selectedCat.name;
                         const categorySlug = baseSlug.toLowerCase().replace(/\s+/g, '-');
-                        
                         const newSlug = `${randInt}-${categorySlug}-${day}-${month}-${year}`;
-                        // --- End Slug Logic ---
 
                         const newCategoryName = selectedCat.name;
-                        const newExcerpt = categoryExcerpts[newCategoryName] || ""; 
-                        
-                        // --- ADD THIS LINE ---
+                        const newExcerpt = categoryExcerpts[newCategoryName] || "";
                         const newContent = categoryContentTemplates[newCategoryName] || "";
-                        
+
                         setSelectedArticle({
                           ...selectedArticle,
                           category_id: value,
                           category: newCategoryName,
                           excerpt: newExcerpt,
                           slug: newSlug,
-                          content: newContent // <-- SET THE NEW CONTENT
+                          content: newContent
                         });
                       }}
-                      // --- END MODIFY ---
-                     
                     >
                       <SelectTrigger id="category">
                         <SelectValue placeholder="Select a category" />
@@ -1135,7 +1226,7 @@ const handleTagChange = (tag: string, checked: boolean) => {
                       </SelectContent>
                     </Select>
                   </div>
-               
+
                   <div className="space-y-2">
                     <Label htmlFor="status">Status</Label>
                     <Select value={selectedArticle.status} onValueChange={(value: "draft" | "published") => setSelectedArticle({ ...selectedArticle, status: value })}>
@@ -1182,191 +1273,90 @@ const handleTagChange = (tag: string, checked: boolean) => {
                   />
                 </div>
                 {/* --- Sub-Categories (Tags) Section --- */}
-                  <div className="space-y-2">
-                    <Label>Sub-Categories / Tags</Label>
-                    <div className="rounded-md border p-4 space-y-2">
-                      {selectedArticle.category && subCategoryMap[selectedArticle.category] ? (
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                          {subCategoryMap[selectedArticle.category].map((tag) => (
-                            <div key={tag} className="flex items-center space-x-2">
-                              <Checkbox
-                                id={tag}
-                                checked={(selectedArticle.tags || []).includes(tag)}
-                                onCheckedChange={(checked) => handleTagChange(tag, !!checked)}
-                              />
-                              <Label
-                                htmlFor={tag}
-                                className="text-sm font-normal"
-                              >
-                                {tag}
-                              </Label>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          Please select a main category first.
-                        </p>
-                      )}
-                    </div>
+                <div className="space-y-2">
+                  <Label>Sub-Categories / Tags</Label>
+                  <div className="rounded-md border p-4 space-y-2">
+                    {selectedArticle.category && subCategoryMap[selectedArticle.category] ? (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        {subCategoryMap[selectedArticle.category].map((tag) => (
+                          <div key={tag} className="flex items-center space-x-2">
+                            <Checkbox
+                              id={tag}
+                              checked={(selectedArticle.tags || []).includes(tag)}
+                              onCheckedChange={(checked) => handleTagChange(tag, !!checked)}
+                            />
+                            <Label
+                              htmlFor={tag}
+                              className="text-sm font-normal"
+                            >
+                              {tag}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Please select a main category first.
+                      </p>
+                    )}
                   </div>
+                </div>
               </div>
 
               {/* Top 10 Products */}
               <Card>
-                <CardHeader className="flex items-center justify-between">
+                <CardHeader className="flex flex-row items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Package className="h-5 w-5 text-primary" />
                     <CardTitle>Top 10 Products</CardTitle>
                   </div>
-                  <Button onClick={addProduct} size="sm" variant="outline">
+                  <Button onClick={() => setIsProductModalOpen(true)} size="sm" variant="outline">
                     <Plus className="h-4 w-4 mr-1" /> Add Product
                   </Button>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  {selectedArticle.top10_products.map((product, index) => (
-                    <Card key={index} className="p-4 bg-secondary/50 overflow-hidden">
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="font-semibold">Rank #{product.rank}</span>
-                        <Button onClick={() => removeProduct(index)} size="sm" variant="ghost" className="text-destructive">
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
+                <CardContent className="space-y-3">
+                  {selectedArticle.article_products
+                    .sort((a, b) => a.rank - b.rank)
+                    .map((articleProduct, index) => (
+                      <Card key={articleProduct.product_id} className="p-3 bg-secondary/50">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="font-semibold text-lg text-primary">{articleProduct.rank}.</span>
+                            <img
+                              src={articleProduct.product.image || "https://via.placeholder.com/100"}
+                              alt=""
+                              className="w-12 h-12 object-cover rounded"
+                            />
+                            <div className="flex-1">
+                              <p className="font-semibold">{articleProduct.product.name}</p>
+                              <p className="text-xs text-muted-foreground line-clamp-1">{articleProduct.product.short_description}</p>
+                              <div className="flex flex-wrap gap-1 pt-1">
+                                {articleProduct.product.tags?.map(tag => (
+                                  <Badge key={tag} variant="secondary" className="text-xs">
+                                    {tag}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          <Button
+                            onClick={() => removeProduct(index)}
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </Card>
+                    ))}
 
-                      <Tabs defaultValue="general" className="w-full">
-                        <TabsList className="grid w-full grid-cols-4">
-                          <TabsTrigger value="general">General</TabsTrigger>
-                          <TabsTrigger value="review">Review</TabsTrigger>
-                          <TabsTrigger value="amazon">Amazon</TabsTrigger>
-                          <TabsTrigger value="flipkart">Flipkart</TabsTrigger>
-                        </TabsList>
-                        
-                        {/* --- General Tab --- */}
-                        <TabsContent value="general" className="pt-4">
-                          <div className="space-y-3">
-                            <div className="grid grid-cols-2 gap-3">
-                              <Input
-                                value={product.name}
-                                onChange={(e) => updateProduct(index, "name", e.target.value)}
-                                placeholder="Product Name"
-                              />
-                              <Input
-                                type="number"
-                                value={product.rating}
-                                onChange={(e) => updateProduct(index, "rating", parseFloat(e.target.value))}
-                                placeholder="Rating (e.g., 4.5)"
-                              />
-                            </div>
-                            <Input
-                              value={product.image}
-                              onChange={(e) => updateProduct(index, "image", e.target.value)}
-                              placeholder="Image URL"
-                            />
-                            <Textarea
-                              value={product.short_description}
-                              onChange={(e) => updateProduct(index, "short_description", e.target.value)}
-                              placeholder="Short Description"
-                              rows={2}
-                            />
-                            <Input
-                              value={product.badge ?? ""}
-                              onChange={(e) => updateProduct(index, "badge", e.target.value)}
-                              placeholder="Badge (e.g., Best Value)"
-                            />
-                          </div>
-                        </TabsContent>
-
-                        {/* --- Review Tab (Pros/Cons) --- */}
-                        <TabsContent value="review" className="pt-4">
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label>Pros (one per line)</Label>
-                              <Textarea
-                                value={product.pros.join("\n")}
-                                onChange={(e) => updateProduct(index, "pros", e.target.value.split("\n").map((v) => v.trim()))}
-                                placeholder={"Pro 1\nPro 2\nPro 3"}
-                                rows={4}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Cons (one per line)</Label>
-                              <Textarea
-                                value={product.cons.join("\n")}
-                                onChange={(e) => updateProduct(index, "cons", e.target.value.split("\n").map((v) => v.trim()))}
-                                placeholder={"Con 1\nCon 2\nCon 3"}
-                                rows={4}
-                              />
-                            </div>
-                          </div>
-                        </TabsContent>
-
-                        {/* --- Amazon Tab --- */}
-                        <TabsContent value="amazon" className="pt-4">
-                          <div className="space-y-3">
-                            <div className="grid grid-cols-3 gap-3">
-                              <Input
-                                type="number"
-                                value={product.amazon_price}
-                                onChange={(e) => updateProduct(index, "amazon_price", parseFloat(e.target.value))}
-                                placeholder="Amazon Price"
-                              />
-                              <Input
-                                type="number"
-                                value={product.amazon_discount ?? ""}
-                                onChange={(e) => updateProduct(index, "amazon_discount", e.target.value ? parseFloat(e.target.value) : null)}
-                                placeholder="Discount %"
-                              />
-                              <Input
-                                type="number"
-                                value={product.amazon_price_change ?? ""}
-                                onChange={(e) => updateProduct(index, "amazon_price_change", e.target.value ? parseFloat(e.target.value) : null)} 
-                                placeholder="Price Change"
-                              />
-                            </div>
-                            <Input
-                              value={product.amazon_link}
-                              onChange={(e) => updateProduct(index, "amazon_link", e.target.value)}
-                              placeholder="Amazon Link"
-                            />
-                          </div>
-                        </TabsContent>
-                        
-                        {/* --- Flipkart Tab --- */}
-                        <TabsContent value="flipkart" className="pt-4">
-                          <div className="space-y-3">
-                            <div className="grid grid-cols-3 gap-3">
-                              <Input
-                                type="number"
-                                value={product.flipkart_price}
-                                onChange={(e) => updateProduct(index, "flipkart_price", parseFloat(e.target.value))}
-                                placeholder="Flipkart Price"
-                              />
-                              <Input
-                                type="number"
-                                value={product.flipkart_discount ?? ""}
-                                onChange={(e) => updateProduct(index, "flipkart_discount", e.target.value ? parseFloat(e.target.value) : null)}
-                                placeholder="Discount %"
-                              />
-                              <Input
-                                type="number"
-                                value={product.flipkart_price_change ?? ""}
-                                onChange={(e) => updateProduct(index, "flipkart_price_change", e.target.value ? parseFloat(e.target.value) : null)} 
-                                placeholder="Price Change"
-                              />
-                            </div>
-                            <Input
-                              value={product.flipkart_link}
-                              onChange={(e) => updateProduct(index, "flipkart_link", e.target.value)}
-                              placeholder="Flipkart Link"
-                            />
-                          </div>
-                        </TabsContent>
-                      </Tabs>
-                    </Card>
-                  ))}
+                  {selectedArticle.article_products.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">No products added yet.</p>
+                  )}
                 </CardContent>
               </Card>
-            
+
               {/* Smart Pick */}
               <Card>
                 <CardHeader>
