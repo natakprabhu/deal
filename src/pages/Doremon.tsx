@@ -478,18 +478,15 @@ Ensuring safe drinking water in India often requires a purifier. The technology 
 
       const article_id = articleData.id;
 
-      // Save article_products
+
       if (selectedArticle.article_products && selectedArticle.article_products.length > 0) {
         await saveArticleProducts(article_id, selectedArticle.article_products);
       } else {
         await deleteArticleProducts(article_id);
       }
 
-      // Save Smart Pick
-      await saveSmartPick(article_id, selectedArticle.smart_pick);
 
-      // Save Related Articles
-      await saveRelatedArticles(article_id, selectedArticle.related_articles);
+      //await saveSmartPick(article_id, selectedArticle.smart_pick);
 
       toast({
         title: "Success!",
@@ -550,9 +547,6 @@ Ensuring safe drinking water in India often requires a purifier. The technology 
 
       // 2. Delete associated Smart Pick
       await supabase.from("smart_pick_recommendations").delete().eq("article_id", articleId);
-
-      // 3. Delete associated Related Articles
-      await supabase.from("related_articles").delete().eq("article_id", articleId);
 
       // 4. Now, delete the main article
       const { error } = await supabase

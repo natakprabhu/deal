@@ -12,6 +12,7 @@ import { Calendar, User, Lightbulb, TrendingUp } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, LabelList } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
+import ReactMarkdown from "react-markdown";
 
 // --- NEW, CORRECTED INTERFACES ---
 
@@ -124,6 +125,10 @@ const ArticleDetail = () => {
   const [notFound, setNotFound] = useState(false);
   const [categoryId, setCategoryId] = useState<string | null>(null);
 
+  const [trivia, setTrivia] = useState<{ title?: string; content: string } | null>(null);
+  const [triviaLoading, setTriviaLoading] = useState(false);
+
+
   // Fetch all article data using correct nested queries
   useEffect(() => {
     const fetchArticleDetails = async () => {
@@ -168,8 +173,16 @@ const ArticleDetail = () => {
         setCategoryId(articleData.category_id || null);
         setSmartPick(articleData.smart_pick_recommendations ? articleData.smart_pick_recommendations[0] : null);
         setRelatedArticles(articleData.related_articles || []);
+        if (articleData.category_id) {
+          fetchTriviaForCategory(articleData.category_id);
+        }
+        // Fetch random related articles in the same category
+          if (articleData.category_id && articleData.id) {
+            fetchRelatedArticlesByCategory(articleData.category_id, articleData.id);
+          }
 
 
+        
         // --- QUERY 2: Fetch the Article's Products (using the new schema) ---
         const { data: productsData, error: productsError } = await supabase
           .from("article_products")
@@ -235,6 +248,59 @@ const ArticleDetail = () => {
 
     fetchArticleDetails();
   }, [slug]);
+
+
+
+const fetchRelatedArticlesByCategory = async (categoryId: string, currentArticleId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from("articles")
+      .select("id, title, slug, featured_image, excerpt")
+      .eq("category_id", categoryId)
+      .eq("status", "published")
+      .neq("id", currentArticleId)
+      .limit(3);
+
+    if (error) throw error;
+
+    setRelatedArticles(data || []);
+  } catch (err: any) {
+    console.error("Error fetching related articles:", err.message);
+    setRelatedArticles([]);
+  }
+};
+
+
+const fetchTriviaForCategory = async (categoryId: string) => {
+  try {
+    setTriviaLoading(true);
+    setTrivia(null);
+
+    const { data, error } = await supabase
+      .from("trivia")
+      .select("id, title, content")
+      .eq("category_id", categoryId);
+
+    if (error) {
+      console.error("Supabase error while fetching trivia:", error.message);
+      throw error;
+    }
+
+    if (data && data.length > 0) {
+      const randomIndex = Math.floor(Math.random() * data.length);
+      const randomTrivia = data[randomIndex];
+      setTrivia(randomTrivia); // { title, content }
+    } else {
+      setTrivia(null);
+    }
+  } catch (err: any) {
+    console.error("Error fetching trivia:", err.message);
+    setTrivia(null);
+  } finally {
+    setTriviaLoading(false);
+  }
+};
+
 
 
   // Fetch Sales Data (This remains the same)
@@ -324,6 +390,13 @@ return (
                 <Badge variant="secondary" className="bg-primary-foreground text-primary">
                   {article.category || "Uncategorized"}
                 </Badge>
+                 <div className="flex flex-wrap gap-2">
+                  {article.tags.map((tag) => (
+                    <Badge key={tag} variant="primary" className="text-sm">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
               </div>
               <h1 className="text-3xl md:text-4xl font-bold mb-2">{article.title}</h1>
               <div className="flex flex-wrap gap-4 text-sm">
@@ -341,26 +414,37 @@ return (
               </p>
             </header>
 
-          {/* --- Article Filters/Tags --- */}
-          {article.tags && article.tags.length > 0 && (
-            <Card className="bg-gradient-to-br from-card to-card/80 border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-xl">
-                  <Lightbulb className="h-5 w-5 text-primary" /> 
-                  Article Smart Filters
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-2">
-                  {article.tags.map((tag) => (
-                    <Badge key={tag} variant="outline" className="text-sm">
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+{article.category_id && (
+  <Card className="bg-gradient-to-br from-card to-card/80 border-0 shadow-lg">
+    <CardHeader>
+      <CardTitle className="flex items-center gap-2 text-xl">
+        <Lightbulb className="h-5 w-5 text-primary" /> 
+        {trivia?.title
+          ? trivia.title
+          : `Did You Know? (${article.category || "Trivia"})`}
+      </CardTitle>
+    </CardHeader>
+    <CardContent>
+      {triviaLoading && (
+        <p className="text-muted-foreground italic">Loading trivia...</p>
+      )}
+      {!triviaLoading && trivia && (
+        <div className="prose prose-neutral dark:prose-invert max-w-none text-sm md:text-base leading-relaxed">
+          <ReactMarkdown>{trivia.content}</ReactMarkdown>
+        </div>
+      )}
+      {!triviaLoading && !trivia && (
+        <p className="text-sm text-muted-foreground italic">
+          No trivia available for this category yet.
+        </p>
+      )}
+    </CardContent>
+  </Card>
+)}
+
+
+
+            
 
           {/* --- Article Content --- */}
             <div
@@ -482,27 +566,39 @@ return (
           </Card>
 
             {/* Related Articles */}
-            <div className="bg-white p-4 rounded-lg shadow-md space-y-3">
-              <h2 className="text-lg font-bold">Related Articles</h2>
-              {relatedArticles && relatedArticles.length > 0 ? (
-                <ul className="space-y-2">
-                  {relatedArticles.map((related) => (
-                    <li key={related.id}>
-                      <a 
-                        href={related.url} // Assuming external URL
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        className="text-primary hover:underline"
-                      >
-                        {related.title}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">No related articles found.</p>
-              )}
+{/* Related Articles */}
+<div className="bg-white p-4 rounded-lg shadow-md space-y-3">
+  <h2 className="text-lg font-bold">Related Articles</h2>
+  {relatedArticles && relatedArticles.length > 0 ? (
+    <ul className="space-y-3">
+      {relatedArticles.map((related) => (
+        <li key={related.id}>
+          <Link 
+            to={`/articles/${related.slug}`} 
+            className="flex items-center gap-3 hover:bg-muted p-2 rounded-md transition"
+          >
+            <img
+              src={related.featured_image || "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=100"}
+              alt={related.title}
+              className="w-16 h-16 rounded-md object-cover"
+            />
+            <div className="flex flex-col">
+              <span className="font-medium text-sm text-foreground line-clamp-2">
+                {related.title}
+              </span>
+              <span className="text-xs text-muted-foreground line-clamp-1">
+                {related.excerpt || ""}
+              </span>
             </div>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  ) : (
+    <p className="text-sm text-muted-foreground">No related articles found.</p>
+  )}
+</div>
+
           </aside>
         </div>
       </main>
