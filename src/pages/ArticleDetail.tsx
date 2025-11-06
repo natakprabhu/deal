@@ -2,97 +2,102 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
-import { Button } from "@/components/ui/button";
-import { ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ProductCard } from "@/components/ProductCard";
-import { SmartPick } from "@/components/SmartPick";
 import { CommentSection } from "@/components/CommentSection";
-import { Calendar, User,Filter, Lightbulb,TrendingUp } from "lucide-react";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, LabelList, Cell } from "recharts";
+import { Calendar, User, Lightbulb, TrendingUp } from "lucide-react";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, LabelList } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from '@/components/ui/skeleton'; // <-- ADD THIS LINE
-// Define the shape of sales data items
-interface TopSaleItem {
-  model_name: string;
-  sales_count: number;
+import { Skeleton } from '@/components/ui/skeleton';
+
+// --- NEW, CORRECTED INTERFACES ---
+
+// This matches the 'products' table (from Doremon.tsx)
+interface Product {
+  id: string;
+  name: string;
+  slug: string;
+  short_description: string;
+  image: string;
+  pros: string[];
+  cons: string[];
+  amazon_link: string;
+  flipkart_link: string;
+  badge: string | null;
+  category_id: string | null;
+  tags: string[];
+  rating: number; // You may need to add 'rating' to your 'products' table. Using 4.5 as fallback.
 }
 
-
-// FIX 1: Updated Top10Product type to match Supabase schema
-type Top10Product = {
-  id: string;
-  article_id: string;
+// This is the junction table data
+interface ArticleProduct {
   rank: number;
-  name: string;
-  image: string;
-  rating: string; // From Supabase data, this is a string
-  short_description: string;
-  pros: string[]; // From Supabase data
-  cons: string[]; // From Supabase data
-  amazon_price: string; // From Supabase data
-  amazon_discount: string; // From Supabase data
-  amazon_price_change: string; // From Supabase data (seems to be previous price)
-  amazon_link: string;
-  flipkart_price: string; // From Supabase data
-  flipkart_discount: string; // From Supabase data
-  flipkart_price_change: string; // From Supabase data (seems to be previous price)
-  flipkart_link: string;
-  badge: string | null; // From Supabase data
-};
+  product_id: string;
+  products: Product; // Supabase nests the 'products' data inside here
+}
 
-// FIX 2: Updated SmartPick type to match Supabase schema
-type SmartPick = {
+// This matches the 'product_price_history' table
+interface PriceHistory {
   id: string;
-  article_id: string;
-  filters: any; // Assuming JSONB or text, 'any' is safe
-  recommendation: string;
-};
+  product_id: string;
+  created_at: string;
+  amazon_price: string;
+  flipkart_price: string;
+  amazon_discount: string | null;
+  flipkart_discount: string | null;
+}
 
-type RelatedArticle = {
+// This is the final combined data structure we'll use
+interface DisplayProduct {
+  rank: number;
+  product: Product;
+  latestPrice: PriceHistory | null;
+  previousPrice: PriceHistory | null;
+}
+
+interface SmartPick {
+  id: string;
+  recommendation: string;
+}
+
+interface RelatedArticle {
   id: string;
   title: string;
-  url: string; // Assuming this is a full URL, not a slug
-};
+  url: string;
+}
 
-// FIX 3: Updated Article type to match Supabase schema
-type Article = {
+interface Article {
   id: string;
   title: string;
   slug: string;
   content: string;
-  excerpt: string | null; // Added excerpt, as it's used in the JSX
+  excerpt: string | null;
   featured_image: string | null;
-  author_id: string | null;
-  status: string;
-  views: number;
-  created_at: string;
-  updated_at: string;
-  author: string | null; // Assuming 'author' is a name/string
-  category: string | null;
-  date: string;
+  author: string | null;
+  category: string | null; // This will be populated by the 'categories' table
   category_id: string | null;
-};
+  date: string;
+  created_at: string;
+  tags: string[] | null;
+  smart_pick_recommendations: SmartPick[] | null;
+  related_articles: RelatedArticle[] | null;
+}
 
-// FIX 4: Removed the hardcoded 'products' array. We will use 'top10Products' from state.
+interface TopSaleItem {
+  model_name: string;
+  sales_count: number;
+}
+// --- END OF INTERFACES ---
 
-// This data is for the sidebar chart, not the main product list. It's fine to keep.
-const topProductsChartData = [
-  { name: "Elica 90cm Auto Clean", orders: 120 },
-  { name: "Faber 60cm Curved Glass", orders: 95 },
-  { name: "Hindware Smart 90cm", orders: 80 },
-  { name: "Glen Filterless 60cm", orders: 60 },
-  { name: "Sunflame 75cm Chimney", orders: 50 },
-];
 
 /**
  * Helper function to determine price change direction.
- * Assumes 'priceChange' is the *previous* price.
  */
-const getPriceChangeDirection = (currentPrice: string, previousPrice: string): "up" | "down" | undefined => {
+const getPriceChangeDirection = (currentPrice: string | null | undefined, previousPrice: string | null | undefined): "up" | "down" | undefined => {
+  if (!previousPrice || !currentPrice) return undefined;
   const current = parseFloat(currentPrice);
   const previous = parseFloat(previousPrice);
   if (isNaN(current) || isNaN(previous)) return undefined;
@@ -105,128 +110,124 @@ const getPriceChangeDirection = (currentPrice: string, previousPrice: string): "
 const ArticleDetail = () => {
   const { slug } = useParams();
   const [article, setArticle] = useState<Article | null>(null);
-  const [top10Products, setTop10Products] = useState<Top10Product[]>([]);
+  const [displayProducts, setDisplayProducts] = useState<DisplayProduct[]>([]);
   const [smartPick, setSmartPick] = useState<SmartPick | null>(null);
   const [relatedArticles, setRelatedArticles] = useState<RelatedArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  // --- ADD State for Sales Chart ---
   const [salesData, setSalesData] = useState<TopSaleItem[]>([]);
   const [salesLoading, setSalesLoading] = useState(true);
   const [salesError, setSalesError] = useState<string | null>(null);
-  // --- END ---
-
-  const [error, setError] = useState<string | null>(null); // <-- ENSURE THIS LINE EXISTS AND IS UNCOMMENTED
-  const [notFound, setNotFound] = useState(false); // <-- ENSURE THIS LINE IS PRESENT AND UNCOMMENTED
+  
+  const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [categoryId, setCategoryId] = useState<string | null>(null);
-  const [filters, setFilters] = useState<{
-    usage?: string;
-    maintenance?: string;
-    priceRange?: string;
-  }>({});
 
-
-  const handleFilterChange = (category: string, value: string) => {
-    setFilters((prev) => ({
-      ...prev,
-      [category]: prev[category as keyof typeof prev] === value ? undefined : value,
-    }));
-  };
-
-  // FIX 5: Updated getRecommendation to use the fetched smartPick as a fallback.
-  const getRecommendation = () => {
-    if (filters.usage === "high" && filters.maintenance === "easy") {
-      return "For high oil usage with easy maintenance, we recommend models with auto-clean technology and powerful suction (1200+ m³/hr).";
-    }
-    if (filters.priceRange === "5-10" && filters.usage === "low") {
-      return "For budget-conscious buyers with low oil usage, the Glen filterless models offer excellent value.";
-    }
-    if (filters.maintenance === "frequent") {
-      return "If you prefer manual control and frequent cleaning, baffle filter models give you the best balance of performance and longevity.";
-    }
-    // Use the recommendation from Supabase as the default, or a final fallback.
-    return smartPick?.recommendation || "Select your preferences above to get personalized recommendations. Our smart algorithm will suggest the best chimney models based on your specific needs.";
-  };
-
-// Fetch article details
+  // Fetch all article data using correct nested queries
   useEffect(() => {
     const fetchArticleDetails = async () => {
       if (!slug) return;
-      console.log("Fetching article for slug:", slug); // <-- DEBUG
+      
       setLoading(true);
       setError(null);
       setNotFound(false);
-      setCategoryId(null); // Reset category ID
+      setCategoryId(null);
 
       try {
-        const { data, error } = await supabase
+        // --- QUERY 1: Fetch the Article and its direct relationships ---
+        const { data: articleData, error: articleError } = await supabase
           .from("articles")
           .select(`
             *,
-            categories(id, name, slug), 
-            top10_products(*),
-            smart_pick_recommendations(*),
-            related_articles(*),
-            tags
+            categories (id, name, slug), 
+            smart_pick_recommendations (*),
+            related_articles (*)
           `)
           .eq("slug", slug)
-          .eq("status", "published")
+          //.eq("status", "published")
           .single();
 
-        //console.log("Article fetch result:", { data, error }); // <-- DEBUG
-        if (error && error.code === 'PGRST116') {
-           console.log("Article not found (PGRST116)"); // <-- DEBUG
+        if (articleError && articleError.code === 'PGRST116') {
            setNotFound(true);
-        } else if (error) {
-          throw error;
+           throw new Error("Article not found");
         }
+        if (articleError) throw articleError;
+        if (!articleData) {
+            setNotFound(true);
+            throw new Error("Article not found");
+        }
+        
+        // Set Article data
+        const fetchedArticle = {
+            ...articleData,
+            category: articleData.categories?.name || null // Flatten category name
+        } as Article;
 
-        if (data) {
-          setArticle(data);
-          // --- DEBUG categoryId ---
-          const fetchedCategoryId = data.categories?.id || null;
-          //console.log("Extracted category ID:", fetchedCategoryId); // <-- DEBUG
-          setCategoryId(fetchedCategoryId);
-        // --- END DEBUG ---
+        setArticle(fetchedArticle);
+        setCategoryId(articleData.category_id || null);
+        setSmartPick(articleData.smart_pick_recommendations ? articleData.smart_pick_recommendations[0] : null);
+        setRelatedArticles(articleData.related_articles || []);
 
-        // Fetch Top10 products separately
-        console.log("Querying top10_products with article_id:", data.id);
+
+        // --- QUERY 2: Fetch the Article's Products (using the new schema) ---
         const { data: productsData, error: productsError } = await supabase
-          .from("top10_products")
-          .select("*")
-          .eq("article_id", data.id)
+          .from("article_products")
+          .select(`
+            rank,
+            product_id,
+            products ( * ) 
+          `)
+          .eq("article_id", articleData.id)
           .order("rank", { ascending: true });
+        
+        if (productsError) throw productsError;
+        
+        console.log(productsData);
+        const articleProducts = (productsData || []) as ArticleProduct[];
+        const productIds = articleProducts.map(p => p.product_id);
 
-        console.log("Top10 products result:", { productsData, productsError });
-        if (productsError) {
-          console.error("Error fetching top10_products:", productsError);
-        } else {
-          setTop10Products(productsData || []);
+        if (productIds.length === 0) {
+            setDisplayProducts([]);
+            return; // No products to fetch prices for
         }
 
-        const { data: relatedData, error: relatedDataError } = await supabase
-          .from("related_articles")
+        // --- QUERY 3: Fetch Price History for these products ---
+        const { data: pricesData, error: pricesError } = await supabase
+          .from("product_price_history")
           .select("*")
-          .eq("article_id", data.id)
-          .order("rank", { ascending: true });
+          .in("product_id", productIds)
+          .order("created_at", { ascending: false });
+        
+        if (pricesError) throw pricesError;
 
-        console.log("Related articles in fetched data:", data?.related_articles);
-        if (data?.related_articles) {
-          setRelatedArticles(data.related_articles);
-        } else {
-          setRelatedArticles([]);
+        // --- COMBINE DATA: Process prices in JavaScript ---
+        const priceHistoryMap = new Map<string, PriceHistory[]>();
+        for (const price of pricesData || []) {
+            if (!priceHistoryMap.has(price.product_id)) {
+                priceHistoryMap.set(price.product_id, []);
+            }
+            priceHistoryMap.get(price.product_id)!.push(price as PriceHistory);
         }
 
+        const finalDisplayProducts: DisplayProduct[] = articleProducts.map(ap => {
+            const history = priceHistoryMap.get(ap.product_id);
+            return {
+                rank: ap.rank,
+                product: ap.products,
+                latestPrice: history ? history[0] : null,     // Most recent price
+                previousPrice: history ? history[1] : null, // Second most recent price
+            };
+        });
 
-        } else if (!error) { // Handle case where data is null without error
-           //console.log("Article data is null but no error reported."); // <-- DEBUG
-           setNotFound(true);
-        }
+        setDisplayProducts(finalDisplayProducts);
 
       } catch (err: any) {
-        console.error("Error fetching article:", err.message);
-        setError("Failed to load article.");
+        console.log("Error fetching article:", err.message);
+        //console.log(err.message);
+        // if (err.message !== "Article not found") {
+        //     setError(err.message);
+        // }
       } finally {
         setLoading(false);
       }
@@ -236,15 +237,10 @@ const ArticleDetail = () => {
   }, [slug]);
 
 
-  // Fetch Sales Data
+  // Fetch Sales Data (This remains the same)
   useEffect(() => {
     const fetchTopSales = async () => {
-      // --- DEBUG ---
-      console.log("Sales fetch effect triggered. categoryId:", categoryId); 
-      // --- END DEBUG ---
-
       if (!categoryId) {
-        console.log("Sales fetch skipped: No categoryId."); // <-- DEBUG
         setSalesLoading(false);
         setSalesData([]);
         return;
@@ -253,7 +249,6 @@ const ArticleDetail = () => {
       setSalesLoading(true);
       setSalesError(null);
       try {
-        console.log("Fetching top sales for categoryId:", categoryId); // <-- DEBUG
         const { data, error } = await supabase
           .from('top_sales')
           .select('model_name, sales_count')
@@ -261,12 +256,8 @@ const ArticleDetail = () => {
           .order('sales_count', { ascending: false })
           .limit(5);
 
-        console.log("Top sales fetch result:", { data, error }); // <-- DEBUG
-
         if (error) throw error;
-
-        setSalesData((data || []).reverse());
-
+        setSalesData((data || []).reverse()); // .reverse() for horizontal chart
       } catch (err: any) {
         console.error("Error fetching top sales:", err.message);
         setSalesError("Could not load sales data.");
@@ -277,12 +268,45 @@ const ArticleDetail = () => {
     };
 
     fetchTopSales();
-  }, [categoryId]); // Dependency remains categoryId
+  }, [categoryId]); // This effect depends on categoryId
 
  
 
-  if (loading) return <p className="text-center py-12">Loading article...</p>;
-  if (!article) return <p className="text-center py-12">Article not found</p>;
+  if (loading) {
+    // A more comprehensive loading skeleton
+    return (
+        <div className="min-h-screen bg-background flex flex-col">
+            <Header />
+            <main className="flex-1 py-12">
+                <div className="container mx-auto px-4 grid grid-cols-12 gap-8">
+                    {/* Left Skeleton */}
+                    <div className="col-span-12 md:col-span-8 space-y-8">
+                        <Skeleton className="h-48 w-full rounded-lg" />
+                        <Skeleton className="h-16 w-full" />
+                        <div className="space-y-4">
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-4 w-3/4" />
+                        </div>
+                        <Separator />
+                        <Skeleton className="h-96 w-full rounded-lg" />
+                        <Skeleton className="h-96 w-full rounded-lg" />
+                    </div>
+                    {/* Right Skeleton */}
+                    <aside className="col-span-12 md:col-span-4 space-y-6">
+                        <Skeleton className="h-64 w-full rounded-lg" />
+                        <Skeleton className="h-48 w-full rounded-lg" />
+                    </aside>
+                </div>
+            </main>
+            <Footer />
+        </div>
+    );
+  }
+  
+  if (notFound) return <p className="text-center py-12">Article not found</p>;
+  if (error) return <p className="text-center py-12 text-destructive">{error}</p>;
+  if (!article) return <p className="text-center py-12">An unexpected error occurred.</p>; // Fallback
 
 
 return (
@@ -295,10 +319,9 @@ return (
           {/* Left Content */}
           <div className="col-span-12 md:col-span-8 space-y-8">
             {/* Article Header */}
-            <header className="bg-gradient-to-r from-orange-400 to-orange-600 text-white p-6 rounded-lg shadow-md">
+            <header className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground p-6 rounded-lg shadow-md">
               <div className="flex flex-wrap gap-2 mb-4">
-                <Badge variant="secondary" className="bg-white text-orange-600">
-                  {/* Using category from fetched article */}
+                <Badge variant="secondary" className="bg-primary-foreground text-primary">
                   {article.category || "Uncategorized"}
                 </Badge>
               </div>
@@ -306,7 +329,6 @@ return (
               <div className="flex flex-wrap gap-4 text-sm">
                 <div className="flex items-center gap-2">
                   <User className="w-4 h-4" />
-                  {/* Using author from fetched article or a fallback */}
                   <span>By {article.author || "Our Team"}</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -315,24 +337,20 @@ return (
                 </div>
               </div>
               <p className="mt-4 text-white/90">
-                {/* Using excerpt from fetched article */}
                 {article.excerpt}
               </p>
             </header>
 
-            {/* --- NEW SECTION: Article Filters/Tags --- */}
-          {/* Check if article exists and has tags */}
-          {article && article.tags && article.tags.length > 0 && (
-            <Card className="mb-8 bg-gradient-to-br from-card to-card/80 border-0 shadow-lg">
+          {/* --- Article Filters/Tags --- */}
+          {article.tags && article.tags.length > 0 && (
+            <Card className="bg-gradient-to-br from-card to-card/80 border-0 shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-xl">
-                  {/* You can use a filter icon or keep the lightbulb */}
                   <Lightbulb className="h-5 w-5 text-primary" /> 
                   Article Smart Filters
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {/* Display tags using Shadcn Badges */}
                 <div className="flex flex-wrap gap-2">
                   {article.tags.map((tag) => (
                     <Badge key={tag} variant="outline" className="text-sm">
@@ -343,45 +361,43 @@ return (
               </CardContent>
             </Card>
           )}
-          {/* --- END OF NEW SECTION --- */}
 
-          {/* ... (Rest of your JSX for related articles, comments, etc.) ... */}
-
-            <Separator className="my-8" />
-
-          {/* Product Reviews */}
-          <section className="space-y-8">
-            <h2 className="text-3xl font-bold">Detailed Reviews</h2>
-            
-            {/* FIX 6: Render article.content as HTML, not in a <code> tag */}
+          {/* --- Article Content --- */}
             <div
               className="prose prose-orange max-w-none"
               dangerouslySetInnerHTML={{ __html: article.content }}
             />
+
+            <Separator className="my-8" />
+
+          {/* --- Product Reviews --- */}
+          <section className="space-y-8">
+            <h2 className="text-3xl font-bold">Detailed Reviews</h2>
             
-            {/* FIX 7: Map over 'top10Products' from state, not the hardcoded array.
-                We also transform the props to match what ProductCard expects
-                (e.g., converting string prices/ratings to numbers). */}
-            {top10Products.map((product) => (
-              <ProductCard 
-                key={product.id}
-                rank={product.rank}
-                name={product.name}
-                image={product.image}
-                rating={parseFloat(product.rating)} // Convert string to number
-                pros={product.pros}
-                cons={product.cons}
-                amazonPrice={parseFloat(product.amazon_price)} // Convert string to number
-                amazonDiscount={parseFloat(product.amazon_discount)} // Convert string to number
-                amazonPriceChange={getPriceChangeDirection(product.amazon_price, product.amazon_price_change)}
-                amazonLink={product.amazon_link}
-                flipkartPrice={parseFloat(product.flipkart_price)} // Convert string to number
-                flipkartDiscount={parseFloat(product.flipkart_discount)} // Convert string to number
-                flipkartPriceChange={getPriceChangeDirection(product.flipkart_price, product.flipkart_price_change)}
-                flipkartLink={product.flipkart_link}
-                badge={product.badge}
-              />
-            ))}
+            {/* Map over the new 'displayProducts' state */}
+            {displayProducts.map((item) => {
+              const { product, latestPrice, previousPrice, rank } = item;
+              return (
+                <ProductCard 
+                  key={product.id}
+                  rank={rank}
+                  name={product.slug}
+                  image={product.image}
+                  rating={product.rating || 4.5} // Use product rating or fallback
+                  pros={product.pros}
+                  cons={product.cons}
+                  amazonPrice={parseFloat(latestPrice?.amazon_price || "0")}
+                  amazonDiscount={parseFloat(latestPrice?.amazon_discount || "0")}
+                  amazonPriceChange={getPriceChangeDirection(latestPrice?.amazon_price, previousPrice?.amazon_price)}
+                  amazonLink={product.amazon_link}
+                  flipkartPrice={parseFloat(latestPrice?.flipkart_price || "0")}
+                  flipkartDiscount={parseFloat(latestPrice?.flipkart_discount || "0")}
+                  flipkartPriceChange={getPriceChangeDirection(latestPrice?.flipkart_price, previousPrice?.flipkart_price)}
+                  flipkartLink={product.flipkart_link}
+                  badge={product.badge}
+                />
+              )
+            })}
           </section>
 
             <Separator className="my-8" />
@@ -391,20 +407,18 @@ return (
           </div>
 
           {/* Right Sidebar */}
-          {/* Right Sidebar */}
         <aside className="col-span-12 md:col-span-4 space-y-6">
-          {/* --- UPDATED Top Products Sales Chart --- */}
-          <Card className="bg-white p-4 rounded-lg shadow-md"> {/* Use Card for consistency */}
-            <CardHeader className="p-0 mb-4"> {/* Adjust padding */}
-              <CardTitle className="text-xl font-bold flex items-center gap-2"> {/* Use CardTitle */}
+          {/* Top Products Sales Chart */}
+          <Card className="bg-white p-4 rounded-lg shadow-md">
+            <CardHeader className="p-0 mb-4">
+              <CardTitle className="text-xl font-bold flex items-center gap-2">
                  <TrendingUp className="h-5 w-5 text-primary" />
                  Top Selling Models
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0"> {/* Adjust padding */}
-              {/* Loading State */}
+            <CardContent className="p-0">
               {salesLoading && (
-                <div className="space-y-2 h-[220px]"> {/* Match chart height */}
+                <div className="space-y-2 h-[220px]">
                   <Skeleton className="h-8 w-full" />
                   <Skeleton className="h-8 w-5/6" />
                   <Skeleton className="h-8 w-4/6" />
@@ -412,36 +426,33 @@ return (
                   <Skeleton className="h-8 w-2/6" />
                 </div>
               )}
-              {/* Error State */}
               {salesError && <p className="text-destructive text-center h-[220px] flex items-center justify-center">{salesError}</p>}
-              {/* Empty State */}
               {!salesLoading && !salesError && salesData.length === 0 && (
                 <p className="text-muted-foreground text-center h-[220px] flex items-center justify-center">
                   No sales data available.
                 </p>
               )}
-              {/* Chart */}
               {!salesLoading && !salesError && salesData.length > 0 && (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart
-                    data={salesData} // <-- Use fetched salesData
+                    data={salesData}
                     layout="vertical"
-                    margin={{ top: 5, right: 30, left: 0, bottom: 5 }} // Adjusted margins
+                    margin={{ top: 5, right: 30, left: 0, bottom: 5 }}
                   >
                     <XAxis type="number" hide />
                     <YAxis
-                      dataKey="model_name" // <-- Use model_name
+                      dataKey="model_name"
                       type="category"
                       width={140}
                       axisLine={false}
                       tickLine={false}
-                      tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} // Style tick
-                      interval={0} // Show all labels
+                      tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+                      interval={0}
                     />
                     <Tooltip
-                       formatter={(value: number) => [`${value}`, "Sales"]} // <-- Change label to Sales
-                       cursor={{ fill: 'hsl(var(--muted) / 0.5)' }} // Use theme color
-                       contentStyle={{ // Style tooltip
+                       formatter={(value: number) => [`${value}`, "Sales"]}
+                       cursor={{ fill: 'hsl(var(--muted) / 0.5)' }}
+                       contentStyle={{
                          backgroundColor: 'hsl(var(--background))',
                          borderColor: 'hsl(var(--border))',
                          borderRadius: 'var(--radius)',
@@ -449,21 +460,20 @@ return (
                        }}
                     />
                     <Bar
-                      dataKey="sales_count" // <-- Use sales_count
-                      fill="hsl(var(--primary))" // Use theme color
+                      dataKey="sales_count"
+                      fill="hsl(var(--primary))"
                       radius={4}
-                      barSize={20} // Adjust bar size
+                      barSize={20}
                     >
                       <LabelList
-                        dataKey="sales_count" // <-- Use sales_count
-                        position="right" // Position label outside bar
-                        offset={8} // Add offset
-                        fill="hsl(var(--foreground))" // Use theme color
+                        dataKey="sales_count"
+                        position="right"
+                        offset={8}
+                        fill="hsl(var(--foreground))"
                         fontSize={12}
                         fontWeight="500"
                         formatter={(value: number) => `${value}`}
                       />
-                      {/* Cell is not needed if using a single color */}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -471,20 +481,18 @@ return (
             </CardContent>
           </Card>
 
-            {/* FIX 9: Replaced placeholder with dynamic Related Articles from state */}
+            {/* Related Articles */}
             <div className="bg-white p-4 rounded-lg shadow-md space-y-3">
               <h2 className="text-lg font-bold">Related Articles</h2>
-              {relatedArticles.length > 0 ? (
+              {relatedArticles && relatedArticles.length > 0 ? (
                 <ul className="space-y-2">
                   {relatedArticles.map((related) => (
                     <li key={related.id}>
-                      {/* Assuming 'related.url' is a full external URL. If it's an internal
-                          slug (e.g., /my-other-post), use <Link to={related.url}> */}
                       <a 
-                        href={related.url} 
+                        href={related.url} // Assuming external URL
                         target="_blank" 
                         rel="noopener noreferrer" 
-                        className="text-orange-600 hover:underline"
+                        className="text-primary hover:underline"
                       >
                         {related.title}
                       </a>
